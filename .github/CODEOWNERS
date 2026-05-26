@@ -1,0 +1,49 @@
+# CODEOWNERS — Ghanem.one
+#
+# Format: <path-pattern> <github-handle-or-team>
+# Lihat: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Order matters: rule paling bawah yang match yang menang.
+# Setiap PR yang menyentuh path ini WAJIB di-approve oleh owner.
+
+# ---- Default: tech lead ----
+* @ghanem-tech/tech-leads
+
+# ---- Frontend ----
+/apps/web/                        @ghanem-tech/frontend
+/apps/admin/                      @ghanem-tech/frontend
+/packages/ui/                     @ghanem-tech/frontend
+
+# ---- Backend (NestJS) ----
+/apps/api/                        @ghanem-tech/backend
+
+# ---- Workers (Python spatial) ----
+/apps/workers/                    @ghanem-tech/backend @ghanem-tech/gis
+
+# ---- Shared types & config ----
+/packages/types/                  @ghanem-tech/backend @ghanem-tech/frontend
+/packages/config/                 @ghanem-tech/tech-leads
+
+# ---- Infrastructure (DevOps approval required) ----
+/.github/                         @ghanem-tech/devops
+/.github/workflows/               @ghanem-tech/devops @ghanem-tech/tech-leads
+/.github/CODEOWNERS               @ghanem-tech/tech-leads
+/infra/                           @ghanem-tech/devops
+/infra/ansible/                   @ghanem-tech/devops
+/infra/helm/                      @ghanem-tech/devops
+/infra/scripts/                   @ghanem-tech/devops
+
+# ---- Documentation ----
+/docs/                            @ghanem-tech/tech-leads
+/docs/decisions/                  @ghanem-tech/tech-leads
+/docs/runbooks/                   @ghanem-tech/devops @ghanem-tech/launch-sre
+/docs/infrastructure/             @ghanem-tech/devops
+
+# ---- Security-sensitive ----
+/docs/auth-flow.md                @ghanem-tech/security @ghanem-tech/backend
+/apps/api/src/modules/auth/       @ghanem-tech/security @ghanem-tech/backend
+
+# ---- Root config (sentinel - keep minimal change) ----
+/package.json                     @ghanem-tech/tech-leads @ghanem-tech/devops
+/turbo.json                       @ghanem-tech/tech-leads @ghanem-tech/devops
+/.nvmrc                           @ghanem-tech/devops

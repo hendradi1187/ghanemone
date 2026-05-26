@@ -1,0 +1,16 @@
+dist/
+*.tsbuildinfo
+.turbo/
+node_modules/
+.env
+.env.local
+.env.*.local
+coverage/
+
+# Prisma generated client (di-generate ulang via `prisma generate`)
+src/db/generated/
+prisma/migrations/.snapshots/
+
+# Logs
+logs/
+*.log

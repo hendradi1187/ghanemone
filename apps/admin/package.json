@@ -1,0 +1,46 @@
+{
+  "name": "@ghanem/admin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Ghanem.one internal admin tools (Vite + React 18 + TypeScript) — user provisioning, audit log, ops dashboards.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5174",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 5174",
+    "lint": "eslint . --max-warnings=0",
+    "type-check": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.1.0",
+    "@fontsource/inter-tight": "^5.1.0",
+    "@fontsource/jetbrains-mono": "^5.1.0",
+    "@ghanem/types": "*",
+    "@ghanem/ui": "*",
+    "@tanstack/react-query": "^5.51.23",
+    "leaflet": "^1.9.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.1",
+    "recharts": "^2.12.7",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@ghanem/config": "*",
+    "@types/leaflet": "^1.9.12",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "jsdom": "^25.0.0",
+    "postcss": "^8.4.45",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vitest": "^2.0.5"
+  }
+}

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<title>AlasBuana.com — Wireframes (Tahap Awal)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Caveat:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+<link rel="stylesheet" href="styles.css" />
+
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #f0eee9; }
+  body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<!-- Cross-file navigation -->
+<div style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;gap:0;background:rgba(255,255,255,.92);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid rgba(0,0,0,.08);border-radius:999px;padding:3px;box-shadow:0 4px 16px rgba(0,0,0,.08);font:600 11.5px/1 'Inter',system-ui,sans-serif">
+  <a href="AlasBuana Wireframes.html" style="padding:6px 12px;border-radius:999px;background:#0d6e3a;color:#fff;text-decoration:none">Wireframes</a>
+  <a href="AlasBuana Hi-Fi.html" style="padding:6px 12px;border-radius:999px;color:#45516a;text-decoration:none">Hi-Fi</a>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="primitives.jsx"></script>
+<script type="text/babel" src="page-explore.jsx"></script>
+<script type="text/babel" src="page-map.jsx"></script>
+<script type="text/babel" src="page-dashboard.jsx"></script>
+<script type="text/babel" src="page-analytics.jsx"></script>
+<script type="text/babel" src="page-workspace.jsx"></script>
+<script type="text/babel" src="page-apps.jsx"></script>
+<script type="text/babel" src="page-monitoring.jsx"></script>
+<script type="text/babel" src="page-detail.jsx"></script>
+<script type="text/babel" src="page-mobile.jsx"></script>
+<script type="text/babel" src="page-auxiliary.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "density": "comfortable",
+    "panelPos": "right",
+    "mapFirst": false,
+    "sidebar": true,
+    "sketchy": 0
+  }/*EDITMODE-END*/;
+
+  // Artboard frame sizing — wide enough for the full SaaS layout.
+  const ABw = 1440, ABh = 920;
+
+  function ArtboardScope({ density, sketchy, children }) {
+    // Scope density + sketchy *inside* each artboard so the tweak applies
+    // to every page in the canvas without bleeding out into the canvas chrome.
+    return (
+      <div data-density={density} data-sketchy={sketchy}
+           style={{ width: '100%', height: '100%', display: 'flex' }}>
+        {children}
+      </div>
+    );
+  }
+
+  function App() {
+    const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+    const wrap = (node) => (
+      <ArtboardScope density={t.density} sketchy={t.sketchy}>{node}</ArtboardScope>
+    );
+
+    return (
+      <>
+        <DesignCanvas>
+          <DCSection id="explore" title="01 · Explore Data"
+            subtitle="Halaman utama — temukan, telusuri & akses dataset geospasial dari ekosistem SPEKTRUM">
+            <DCArtboard id="explore-a" label="A · Split: List + Map + Detail (right panel)" width={ABw} height={ABh}>
+              {wrap(<ExploreA density={t.density} panelPos={t.panelPos}
+                              mapFirst={t.mapFirst} sidebar={t.sidebar} />)}
+            </DCArtboard>
+            <DCArtboard id="explore-b" label="B · Map-first + Filter strip + Bottom drawer" width={ABw} height={ABh}>
+              {wrap(<ExploreB density={t.density} sidebar={t.sidebar} />)}
+            </DCArtboard>
+            <DCPostIt top={20} left={ABw + 80} rotate={2}>
+              Referensi screenshot persis di sini → struktur sidebar + list + peta + panel kanan
+            </DCPostIt>
+          </DCSection>
+
+          <DCSection id="map" title="02 · Map View"
+            subtitle="Mode peta penuh — floating panels vs. dock sidebar">
+            <DCArtboard id="map-a" label="A · Full-bleed + floating panels" width={ABw} height={ABh}>
+              {wrap(<MapA />)}
+            </DCArtboard>
+            <DCArtboard id="map-b" label="B · Dock sidebar + bottom toolbar" width={ABw} height={ABh}>
+              {wrap(<MapB />)}
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="dashboard" title="03 · Dashboard"
+            subtitle="Ringkasan ekosistem — KPI, aktivitas, status data">
+            <DCArtboard id="dashboard-a" label="A · KPI grid + Activity feed" width={ABw} height={ABh}>
+              {wrap(<DashboardA />)}
+            </DCArtboard>
+            <DCArtboard id="dashboard-b" label="B · Hero metric + Tiles" width={ABw} height={ABh}>
+              {wrap(<DashboardB />)}
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="analytics" title="04 · Analytics"
+            subtitle="Eksplorasi data — chart builder & query interface">
+            <DCArtboard id="analytics-a" label="A · Multi-chart workspace" width={ABw} height={ABh}>
+              {wrap(<AnalyticsA />)}
+            </DCArtboard>
+            <DCArtboard id="analytics-b" label="B · Query builder + Result panel" width={ABw} height={ABh}>
+              {wrap(<AnalyticsB />)}
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="workspace" title="05 · Workspace"
+            subtitle="Project pribadi — kolaborasi tim, layer tersimpan, dokumen">
+            <DCArtboard id="workspace-a" label="A · Project list + Recent activity" width={ABw} height={ABh}>
+              {wrap(<WorkspaceA />)}
+            </DCArtboard>
+            <DCArtboard id="workspace-b" label="B · Kanban project board" width={ABw} height={ABh}>
+              {wrap(<WorkspaceB />)}
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="apps" title="06 · Apps"
+            subtitle="Marketplace aplikasi & layanan data terhubung">
+            <DCArtboard id="apps-a" label="A · App marketplace grid" width={ABw} height={ABh}>
+              {wrap(<AppsA />)}
+            </DCArtboard>
+            <DCArtboard id="apps-b" label="B · Featured + Category list" width={ABw} height={ABh}>
+              {wrap(<AppsB />)}
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="monitoring" title="07 · Monitoring"
+            subtitle="Status pipeline ingestion, validation & audit log">
+            <DCArtboard id="monitoring-a" label="A · Ops dashboard (jobs + alerts + audit)" width={ABw} height={ABh}>
+              {wrap(<MonitoringA />)}
+            </DCArtboard>
+            <DCArtboard id="monitoring-b" label="B · Topology + Live event timeline" width={ABw} height={ABh}>
+              {wrap(<MonitoringB />)}
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="detail" title="08 · Detail Dataset (drill-down)"
+            subtitle="Halaman dataset tunggal — dibuka dari Explore atau Map">
+            <DCArtboard id="detail-a" label="A · Split: Map + Info tabs" width={ABw} height={ABh}>
+              {wrap(<DetailA />)}
+            </DCArtboard>
+            <DCArtboard id="detail-b" label="B · Hero + full-width tabs (3 column overview)" width={ABw} height={ABh}>
+              {wrap(<DetailB />)}
+            </DCArtboard>
+            <DCPostIt top={20} left={ABw + 80} rotate={-2}>
+              Drill-down dari card / row di Explore Data. Tab Overview default; tab lain stub dulu.
+            </DCPostIt>
+          </DCSection>
+
+          <DCSection id="mobile" title="09 · Mobile Wireframes"
+            subtitle="Adaptasi untuk handheld (375×812) — Explore, Map, Detail">
+            <DCArtboard id="mobile-explore" label="Explore Data — list" width={460} height={ABh}>
+              {wrap(<MobileExplore />)}
+            </DCArtboard>
+            <DCArtboard id="mobile-map" label="Map View + bottom sheet" width={460} height={ABh}>
+              {wrap(<MobileMap />)}
+            </DCArtboard>
+            <DCArtboard id="mobile-detail" label="Detail Dataset" width={460} height={ABh}>
+              {wrap(<MobileDetail />)}
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="aux" title="10 · Auxiliary"
+            subtitle="Login, Upload (KKKS), Compliance (Regulator), Empty/404">
+            <DCArtboard id="aux-login" label="Login & SSO" width={ABw} height={ABh}>
+              {wrap(<LoginPage />)}
+            </DCArtboard>
+            <DCArtboard id="aux-upload" label="Upload Data (KKKS operator)" width={ABw} height={ABh}>
+              {wrap(<UploadPage />)}
+            </DCArtboard>
+            <DCArtboard id="aux-compliance" label="Compliance / Approval (Regulator)" width={ABw} height={ABh}>
+              {wrap(<CompliancePage />)}
+            </DCArtboard>
+            <DCArtboard id="aux-empty" label="Empty state / 404" width={ABw} height={ABh}>
+              {wrap(<EmptyPage />)}
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+
+        <TweaksPanel title="Wireframe Tweaks">
+          <TweakSection label="Layout">
+            <TweakRadio label="Density" value={t.density}
+              options={['compact', 'comfortable', 'spacious']}
+              onChange={(v) => setTweak('density', v)} />
+            <TweakToggle label="Show sidebar kategori" value={t.sidebar}
+              onChange={(v) => setTweak('sidebar', v)} />
+          </TweakSection>
+
+          <TweakSection label="Explore Data — Variant A">
+            <TweakRadio label="Posisi detail" value={t.panelPos}
+              options={[{ value: 'right', label: 'Kanan' },
+                        { value: 'bottom', label: 'Bawah' }]}
+              onChange={(v) => setTweak('panelPos', v)} />
+            <TweakToggle label="Map-first" value={t.mapFirst}
+              onChange={(v) => setTweak('mapFirst', v)} />
+          </TweakSection>
+
+          <TweakSection label="Fidelity">
+            <TweakRadio label="Sketchy" value={t.sketchy}
+              options={[{ value: 0, label: 'Rapi' },
+                        { value: 1, label: 'Sedang' },
+                        { value: 2, label: 'Kasar' }]}
+              onChange={(v) => setTweak('sketchy', v)} />
+          </TweakSection>
+        </TweaksPanel>
+      </>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('app')).render(<App />);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<title>AlasBuana.com — Hi-Fi Design</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="hifi-tokens.css" />
+
+<!-- Leaflet — real interactive maps with OpenStreetMap data -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #f0eee9; }
+  body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+  /* Leaflet — style tooltips & controls to match design system */
+  .leaflet-custom-tip {
+    background: rgba(14,23,38,.92) !important;
+    color: #fff !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    padding: 6px 10px !important;
+    font: 500 11px/1.45 'Inter', system-ui, sans-serif !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,.18) !important;
+  }
+  .leaflet-custom-tip::before { display: none !important; }
+  .leaflet-container { font-family: 'Inter', system-ui, sans-serif; }
+  .leaflet-control-attribution { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<!-- Cross-file navigation -->
+<div style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;gap:0;background:rgba(255,255,255,.92);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid rgba(0,0,0,.08);border-radius:999px;padding:3px;box-shadow:0 4px 16px rgba(0,0,0,.08);font:600 11.5px/1 'Inter',system-ui,sans-serif">
+  <a href="AlasBuana Wireframes.html" style="padding:6px 12px;border-radius:999px;color:#45516a;text-decoration:none">Wireframes</a>
+  <a href="AlasBuana Hi-Fi.html" style="padding:6px 12px;border-radius:999px;background:#0d6e3a;color:#fff;text-decoration:none">Hi-Fi</a>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="hifi-components.jsx"></script>
+<script type="text/babel" src="hifi-explore.jsx"></script>
+<script type="text/babel" src="hifi-pages.jsx"></script>
+<script type="text/babel" src="hifi-pages-2.jsx"></script>
+<script type="text/babel" src="hifi-mobile.jsx"></script>
+<script type="text/babel" src="hifi-auxiliary.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "primary": "#0d6e3a",
+    "accent": "#0e4f9a"
+  }/*EDITMODE-END*/;
+
+  // Hi-fi artboard size — desktop SaaS standard.
+  const ABw = 1440, ABh = 900;
+
+  function App() {
+    const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+    // Apply theme tokens at root so all .hf artboards inherit
+    React.useEffect(() => {
+      const root = document.documentElement;
+      root.style.setProperty('--hf-green-500', t.primary);
+      root.style.setProperty('--hf-blue-500', t.accent);
+    }, [t.primary, t.accent]);
+
+    return (
+      <>
+        <DesignCanvas>
+          <DCSection id="ds" title="Design System"
+            subtitle="Tokens, components, dan pola visual untuk seluruh produk AlasBuana.com">
+            <DCArtboard id="ds-overview" label="Foundations & Components" width={ABw} height={1400}>
+              <HfDesignSystem />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-explore" title="01 · Explore Data"
+            subtitle="Halaman utama — sesuai referensi screenshot, dengan refinement hi-fi">
+            <DCArtboard id="hf-explore-main" label="Explore Data — Split list + Map + Detail" width={ABw} height={ABh}>
+              <HfExplore />
+            </DCArtboard>
+            <DCPostIt top={20} left={ABw + 80} rotate={2}>
+              Struktur identik dengan referensi: sidebar kiri (Browse, Categories, Provider) — list di tengah — peta — detail kanan. Bedanya: tipografi proper, icon set konsisten, palet warna terkurasi.
+            </DCPostIt>
+          </DCSection>
+
+          <DCSection id="hf-detail" title="02 · Detail Dataset"
+            subtitle="Drill-down — dibuka dari card / row di Explore Data">
+            <DCArtboard id="hf-detail-main" label="Detail Dataset — Map + Info panel + AI prompt" width={ABw} height={ABh}>
+              <HfDetail />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-dashboard" title="03 · Dashboard"
+            subtitle="Ringkasan ekosistem — KPI, aktivitas, status">
+            <DCArtboard id="hf-dashboard-main" label="Dashboard — KPI + Charts + Activity" width={ABw} height={ABh}>
+              <HfDashboard />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-monitoring" title="04 · Monitoring"
+            subtitle="Live pipeline status & alerts">
+            <DCArtboard id="hf-monitoring-main" label="Monitoring — Live ops view" width={ABw} height={ABh}>
+              <HfMonitoring />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-map" title="05 · Map View"
+            subtitle="Full-bleed peta dengan floating panels, AI expanded card di pojok kanan bawah">
+            <DCArtboard id="hf-map-main" label="Map View — Full-bleed + AI assistant" width={ABw} height={ABh}>
+              <HfMapView />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-analytics" title="06 · Analytics"
+            subtitle="Chart builder dengan dataset panel kiri & inspector kanan">
+            <DCArtboard id="hf-analytics-main" label="Analytics — Chart builder workspace" width={ABw} height={ABh}>
+              <HfAnalytics />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-workspace" title="07 · Workspace"
+            subtitle="Project pribadi — kanban + team + saved layers">
+            <DCArtboard id="hf-workspace-main" label="Workspace — Project + Kanban" width={ABw} height={ABh}>
+              <HfWorkspace />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-apps" title="08 · Apps"
+            subtitle="Marketplace aplikasi & layanan data terhubung">
+            <DCArtboard id="hf-apps-main" label="Apps — Marketplace dengan featured" width={ABw} height={ABh}>
+              <HfApps />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-mobile" title="09 · Mobile"
+            subtitle="Adaptasi mobile — Explore, Map, Detail (iPhone 15-ish, 380×800)">
+            <DCArtboard id="hf-mobile-explore" label="Mobile · Explore" width={500} height={ABh}>
+              <HfMobileExplore />
+            </DCArtboard>
+            <DCArtboard id="hf-mobile-map" label="Mobile · Map + bottom sheet" width={500} height={ABh}>
+              <HfMobileMap />
+            </DCArtboard>
+            <DCArtboard id="hf-mobile-detail" label="Mobile · Detail Dataset" width={500} height={ABh}>
+              <HfMobileDetail />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="hf-aux" title="10 · Auxiliary"
+            subtitle="Login, Upload (KKKS), Compliance (Regulator), Empty/404">
+            <DCArtboard id="hf-aux-login" label="Login & SSO" width={ABw} height={ABh}>
+              <HfLogin />
+            </DCArtboard>
+            <DCArtboard id="hf-aux-upload" label="Upload Data (KKKS Operator)" width={ABw} height={ABh}>
+              <HfUpload />
+            </DCArtboard>
+            <DCArtboard id="hf-aux-compliance" label="Compliance / Approval (Regulator)" width={ABw} height={ABh}>
+              <HfCompliance />
+            </DCArtboard>
+            <DCArtboard id="hf-aux-empty" label="Empty / 404" width={ABw} height={ABh}>
+              <HfEmpty />
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+
+        <TweaksPanel title="Brand Tweaks">
+          <TweakSection label="Brand Color">
+            <TweakColor label="Primary (brand)" value={t.primary}
+              options={[
+                '#1f8a4a',  // institutional forest green (default)
+                '#0d6e3a',  // deeper jade
+                '#1e6f5c',  // teal
+                '#185a8c',  // navy-ish (jika preferensi biru)
+                '#7a4a1f',  // earth (jika preferensi terra)
+              ]}
+              onChange={(v) => setTweak('primary', v)} />
+            <TweakColor label="Accent" value={t.accent}
+              options={[
+                '#2a5fb8',  // prussian blue (default)
+                '#0e4f9a',  // deeper blue
+                '#7a5cb8',  // purple
+                '#c2840d',  // amber
+              ]}
+              onChange={(v) => setTweak('accent', v)} />
+          </TweakSection>
+        </TweaksPanel>
+      </>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('app')).render(<App />);
+</script>
+
+</body>
+</html>

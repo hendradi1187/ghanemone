@@ -1,0 +1,159 @@
+/*
+ * Ghanem.one (web) — global stylesheet
+ *
+ * Strategi font: fonts (Inter, Inter Tight, JetBrains Mono) di-bundle via
+ * @fontsource packages (lihat src/main.tsx — `import '@fontsource/inter/400.css'` dst.).
+ * Tidak ada runtime CDN egress (ADR 0005, sejalan dengan ADR 0002 on-prem).
+ *
+ * Layer order:
+ *   1. base       — Tailwind reset + body defaults
+ *   2. components — class-level rules (custom .hf-* helpers jika perlu)
+ *   3. utilities  — Tailwind utility classes
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base typography defaults ─────────────────────────────────────────── */
+@layer base {
+  :root {
+    /* Default font feature settings — Inter cv11 (alt 4) + ss01 (alt R) */
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-surface-bg text-ink font-sans text-body;
+    line-height: 1.45;
+    letter-spacing: -0.005em;
+  }
+
+  /* Heading defaults — display family (Inter Tight) untuk h1, h2 inherit body */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply text-ink;
+    font-family: theme('fontFamily.display');
+    margin: 0;
+  }
+
+  /* Form elements menerima inherited font (avoid OS default Helvetica) */
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Monospaced numerals di kontainer numeric (KPI, tables) — opt-in via .num */
+  .num,
+  [data-num] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ─── Accessibility — focus-visible ring (WCAG 2.2 §2.4.13) ───────────── */
+@layer base {
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid theme('colors.green.500');
+    outline-offset: 2px;
+    border-radius: theme('borderRadius.2');
+  }
+}
+
+/* ─── Reduced motion (WCAG 2.3.3) ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─── Screen-reader-only utility ───────────────────────────────────────── */
+@layer utilities {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+/* Leaflet z-index normalization */
+/*
+ * Leaflet default z-index: tilePane=200, overlayPane=400, shadowPane=500,
+ * markerPane=600, tooltipPane=650, popupPane=700, controls=800-1000.
+ * Tailwind z-scale di sini: nav=40, floating=50, modal=60, toast=70, tooltip=80.
+ *
+ * Map container harus stay BELOW our modals/toasts. Caranya: paksa map root
+ * dan semua panes <= z-index 30 supaya app modals (Radix Dialog z-modal=60) di
+ * atasnya. Floating UI overlays (panel kiri/kanan, search) tetap di atas map
+ * pakai z-floating (50) via Tailwind.
+ */
+.leaflet-container {
+  z-index: 1;
+}
+.leaflet-pane,
+.leaflet-control {
+  z-index: auto;
+}
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 30;
+}
+/* Tooltip styling untuk match brand */
+.hf-leaflet-tooltip {
+  background: theme('colors.surface.DEFAULT');
+  border: 1px solid theme('colors.line.DEFAULT');
+  border-radius: theme('borderRadius.2');
+  padding: 6px 8px;
+  font-size: 11.5px;
+  color: theme('colors.ink.DEFAULT');
+  box-shadow: 0 4px 14px rgba(14, 23, 38, 0.08);
+}
+.hf-leaflet-tooltip::before {
+  border-top-color: theme('colors.line.DEFAULT');
+}
+
+/* ─── Custom scrollbar (WebKit) — match warm-tech palette ─────────────── */
+@layer base {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme('colors.line.2');
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme('colors.ink.6');
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

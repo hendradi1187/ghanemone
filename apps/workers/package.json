@@ -1,0 +1,17 @@
+{
+  "name": "@ghanem/workers",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wrapper npm scripts untuk Python workers — supaya Turborepo dapat orchestrate pipeline (lint/test/build) konsisten dengan apps lain.",
+  "scripts": {
+    "dev": "poetry run ghanem-worker",
+    "build": "poetry build",
+    "lint": "poetry run ruff check src tests",
+    "type-check": "poetry run mypy src",
+    "test": "poetry run pytest",
+    "clean": "rimraf dist .turbo build .pytest_cache .mypy_cache .ruff_cache"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1"
+  }
+}

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<title>AlasBuana.com — Interactive Prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="hifi-tokens.css" />
+
+<!-- Leaflet for real interactive map -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #15171c; overflow: hidden; }
+  body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+  .stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .window {
+    width: min(1440px, calc(100vw - 48px));
+    height: min(900px, calc(100vh - 48px));
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 32px 80px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.06);
+    display: flex; flex-direction: column;
+    background: #fff;
+  }
+
+  /* Browser chrome — light theme to match the app */
+  .chrome-bar {
+    height: 38px; background: #f1ede4; border-bottom: 1px solid #e6e1d4;
+    display: flex; align-items: center; padding: 0 12px; gap: 10px;
+    flex: 0 0 auto;
+  }
+  .traffic { display: flex; gap: 7px; }
+  .traffic span { width: 11px; height: 11px; border-radius: 50%; }
+  .nav-btn {
+    width: 26px; height: 26px; border-radius: 6px; background: transparent;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #6b7891; border: 0; cursor: pointer;
+  }
+  .nav-btn:hover { background: rgba(0,0,0,.05); }
+  .urlbar {
+    flex: 1; max-width: 560px; margin: 0 auto;
+    height: 26px; background: #fff; border: 1px solid #e6e1d4; border-radius: 6px;
+    display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    font: 500 11.5px/1 'Inter', system-ui, sans-serif; color: #1f2a3d;
+  }
+  .urlbar .lock { color: #1f8a4a; }
+  .urlbar .path { color: #6b7891; }
+
+  /* Anim */
+  @keyframes toastIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes aiDot { 0%, 80%, 100% { transform: scale(.6); opacity: .5; } 40% { transform: scale(1); opacity: 1; } }
+
+  /* Leaflet — style tooltips & controls to match design system */
+  .leaflet-custom-tip {
+    background: rgba(14,23,38,.92) !important;
+    color: #fff !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    padding: 6px 10px !important;
+    font: 500 11px/1.45 'Inter', system-ui, sans-serif !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,.18) !important;
+  }
+  .leaflet-custom-tip::before { display: none !important; }
+  .leaflet-control-zoom a {
+    background: #fff !important; color: #45516a !important;
+    border: 1px solid #e6e1d4 !important;
+    font-family: 'Inter', sans-serif !important;
+  }
+  .leaflet-control-zoom a:hover { background: #fafaf6 !important; }
+  .leaflet-control-attribution {
+    background: rgba(255,255,255,.85) !important;
+    font-size: 9px !important; color: #6b7891 !important;
+    padding: 2px 6px !important; border-radius: 3px !important;
+  }
+</style>
+</head>
+<body>
+
+<!-- Skip to content (accessibility) -->
+<a href="#app" style="position:absolute;left:-9999px;top:0;background:#0d6e3a;color:#fff;padding:8px 14px;border-radius:6px;font:600 12px/1 'Inter',sans-serif;text-decoration:none;z-index:99999" onfocus="this.style.left='10px';this.style.top='10px'" onblur="this.style.left='-9999px'">Skip to content</a>
+
+<div class="stage">
+  <div class="window">
+    <!-- Browser chrome (light) -->
+    <div class="chrome-bar">
+      <div class="traffic">
+        <span style="background:#ff5f57"></span>
+        <span style="background:#febc2e"></span>
+        <span style="background:#28c840"></span>
+      </div>
+      <div style="display:flex;gap:2px;margin-left:8px">
+        <button class="nav-btn">‹</button>
+        <button class="nav-btn">›</button>
+        <button class="nav-btn">⟳</button>
+      </div>
+      <div class="urlbar">
+        <span class="lock">⌗</span>
+        <span><b>alasbuana.com</b></span>
+        <span class="path" id="urlpath">/explore</span>
+        <span style="margin-left:auto;color:#9aa4bb">⌘L</span>
+      </div>
+      <div style="display:flex;gap:2px">
+        <button class="nav-btn">⋯</button>
+      </div>
+    </div>
+
+    <!-- App -->
+    <div id="app" style="flex:1;display:flex;flex-direction:column;background:#f7f5f0;min-height:0"></div>
+  </div>
+</div>
+
+<!-- Cross-file navigation -->
+<div style="position:fixed;top:10px;right:14px;z-index:9999;display:flex;gap:0;white-space:nowrap;background:rgba(255,255,255,.92);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid rgba(0,0,0,.08);border-radius:999px;padding:3px;box-shadow:0 4px 16px rgba(0,0,0,.12);font:600 11px/1 'Inter',system-ui,sans-serif">
+  <a href="AlasBuana Wireframes.html" style="padding:5px 11px;border-radius:999px;color:#45516a;text-decoration:none;white-space:nowrap">Wireframes</a>
+  <a href="AlasBuana Hi-Fi.html" style="padding:5px 11px;border-radius:999px;color:#45516a;text-decoration:none;white-space:nowrap">Hi-Fi</a>
+  <a href="AlasBuana Prototype.html" style="padding:5px 11px;border-radius:999px;background:#0d6e3a;color:#fff;text-decoration:none;white-space:nowrap">Prototype ✦</a>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="hifi-components.jsx"></script>
+<script type="text/babel" src="prototype-realmap.jsx"></script>
+<script type="text/babel" src="prototype-states.jsx"></script>
+<script type="text/babel" src="prototype-app.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+  // Sync URL bar with current page state
+  function UrlSync() {
+    const { page } = useApp();
+    React.useEffect(() => {
+      const path = page.name === 'detail' && page.params.id
+        ? '/datasets/' + page.params.id
+        : '/' + page.name;
+      const el = document.getElementById('urlpath');
+      if (el) el.textContent = path;
+    }, [page]);
+    return null;
+  }
+
+  function Root() {
+    return (
+      <AppProvider>
+        <UrlSync />
+        <AppRouter />
+        <ToastStack />
+      </AppProvider>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('app')).render(<Root />);
+</script>
+
+</body>
+</html>

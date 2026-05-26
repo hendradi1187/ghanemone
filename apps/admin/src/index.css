@@ -1,0 +1,109 @@
+/*
+ * Ghanem.one (admin) — global stylesheet
+ *
+ * Sama persis dengan apps/web/src/index.css supaya admin app menggunakan
+ * design system yang identik. Fonts di-bundle via @fontsource (lihat src/main.tsx),
+ * konsisten dengan ADR 0005 (no runtime CDN egress).
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-surface-bg text-ink font-sans text-body;
+    line-height: 1.45;
+    letter-spacing: -0.005em;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply text-ink;
+    font-family: theme('fontFamily.display');
+    margin: 0;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  .num,
+  [data-num] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer base {
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid theme('colors.green.500');
+    outline-offset: 2px;
+    border-radius: theme('borderRadius.2');
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer utilities {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+@layer base {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: theme('colors.line.2');
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: theme('colors.ink.6');
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

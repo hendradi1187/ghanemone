@@ -1,0 +1,84 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / IDE
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Python (workers)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+*.egg
+poetry.lock.bak
+
+# Local data (PostgreSQL, Redis dumps, MinIO local fixtures)
+data/
+tmp/
+*.dump
+*.sql.gz
+
+# Secrets — NEVER commit
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+kubeconfig*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Storybook
+storybook-static/
+
+# Misc local caches
+.eslintcache
+.parcel-cache/
+.cache/

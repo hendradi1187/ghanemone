@@ -1,0 +1,154 @@
+# Deploy ke STAGING environment — auto on push ke `release/**` branch ATAU manual.
+# Mandatory smoke + integration tests sebelum mark deployment success.
+name: Deploy — Staging
+
+on:
+  push:
+    branches: ['release/**']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag/branch untuk deploy (mis. release/v0.2.0)'
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20.11.0'
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/ghanem-tech
+  TURBO_TELEMETRY_DISABLED: 1
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  # -------------------------------------------------------------------
+  # Verify branch valid (release/**) atau dispatch dengan input valid
+  # -------------------------------------------------------------------
+  validate:
+    name: Validate release ref
+    runs-on: [self-hosted, linux, skk-migas]
+    steps:
+      - name: Cek ref
+        run: |
+          REF="${{ github.ref }}"
+          INPUT="${{ inputs.release_tag }}"
+          if [[ "$REF" != refs/heads/release/* && -z "$INPUT" ]]; then
+            echo "::error::Staging deploy hanya dari branch release/** atau dispatch dengan release_tag."
+            exit 1
+          fi
+          echo "Ref valid: $REF (input: $INPUT)"
+
+  # -------------------------------------------------------------------
+  # Build + push semua apps (tidak pakai affected — staging deploy full)
+  # -------------------------------------------------------------------
+  build-and-push:
+    name: Build ${{ matrix.app }}
+    needs: validate
+    runs-on: [self-hosted, linux, skk-migas]
+    strategy:
+      fail-fast: true
+      matrix:
+        app: [web, admin, api, workers]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login ke ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/ghanem-${{ matrix.app }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+            type=raw,value=staging-latest
+
+      - name: Build + push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.app }}-staging
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}-staging
+
+  # -------------------------------------------------------------------
+  # Deploy ke k3s staging cluster
+  # -------------------------------------------------------------------
+  deploy:
+    name: Helm upgrade — staging
+    needs: build-and-push
+    runs-on: [self-hosted, linux, skk-migas]
+    environment:
+      name: staging
+      url: https://staging.ghanem.one
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.4'
+
+      - name: Setup helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.15.4'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.GHANEM_STAGING_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Helm upgrade — all apps
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          for app in web admin api workers; do
+            helm upgrade --install ghanem-$app infra/helm/ghanem-$app \
+              --namespace ghanem-staging \
+              --create-namespace \
+              --values infra/helm/ghanem-$app/values-staging.yaml \
+              --set image.tag=sha-$SHORT_SHA \
+              --wait --timeout 10m
+          done
+
+      - name: Smoke test
+        run: |
+          if [ -f infra/scripts/smoke-test.sh ]; then
+            ./infra/scripts/smoke-test.sh staging
+          else
+            echo "smoke-test.sh belum ada (akan dibuat di Task #6). Skip."
+          fi
+
+      - name: Integration tests (E2E)
+        run: |
+          if [ -f infra/scripts/integration-test.sh ]; then
+            ./infra/scripts/integration-test.sh staging
+          else
+            echo "integration-test.sh belum ada. Skip."
+          fi

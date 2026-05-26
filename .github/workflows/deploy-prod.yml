@@ -1,0 +1,144 @@
+# Deploy ke PROD environment — MANUAL TRIGGER ONLY dengan environment approval.
+# Source image tag harus sudah diverifikasi di staging (tag staging-latest atau spesifik SHA).
+name: Deploy — Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag untuk deploy (mis. sha-abc1234 atau v0.2.0). Harus sudah ada di ghcr.io.'
+        required: true
+        type: string
+      release_branch:
+        description: 'Release branch sumber (mis. release/v0.2.0). Untuk audit trail.'
+        required: true
+        type: string
+      skip_smoke:
+        description: 'Skip post-deploy smoke test (HANYA dipakai untuk hotfix di mana smoke akan dijalankan manual). Default: false.'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/ghanem-tech
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+jobs:
+  # -------------------------------------------------------------------
+  # Pre-flight: validasi tag exists, validasi user authorized
+  # -------------------------------------------------------------------
+  preflight:
+    name: Pre-flight checks
+    runs-on: [self-hosted, linux, skk-migas, ghanem-prod]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_branch }}
+
+      - name: Validate inputs
+        run: |
+          if [[ -z "${{ inputs.image_tag }}" ]]; then
+            echo "::error::image_tag wajib di-isi."
+            exit 1
+          fi
+          if [[ ! "${{ inputs.release_branch }}" =~ ^release/ ]]; then
+            echo "::error::release_branch harus diawali 'release/'."
+            exit 1
+          fi
+          echo "Pre-flight OK. Tag=${{ inputs.image_tag }} Branch=${{ inputs.release_branch }}"
+
+      - name: Verify image exists di ghcr.io
+        run: |
+          for app in web admin api workers; do
+            IMAGE="${{ env.IMAGE_PREFIX }}/ghanem-$app:${{ inputs.image_tag }}"
+            echo "Checking $IMAGE ..."
+            docker manifest inspect "$IMAGE" > /dev/null || {
+              echo "::error::Image $IMAGE tidak ditemukan di registry."
+              exit 1
+            }
+          done
+          echo "Semua image tersedia."
+
+  # -------------------------------------------------------------------
+  # Deploy ke prod k3s cluster — env protection (approval required)
+  # -------------------------------------------------------------------
+  deploy:
+    name: Helm upgrade — production
+    needs: preflight
+    runs-on: [self-hosted, linux, skk-migas, ghanem-prod]
+    environment:
+      name: production
+      url: https://ghanem.one
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_branch }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.4'
+
+      - name: Setup helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.15.4'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.GHANEM_PROD_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Record deploy start (audit)
+        run: |
+          echo "Deploy mulai: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Operator: ${{ github.actor }}"
+          echo "Image tag: ${{ inputs.image_tag }}"
+          echo "Release branch: ${{ inputs.release_branch }}"
+
+      - name: Helm upgrade — all apps
+        run: |
+          for app in web admin api workers; do
+            echo "::group::Helm upgrade ghanem-$app"
+            helm upgrade --install ghanem-$app infra/helm/ghanem-$app \
+              --namespace ghanem-prod \
+              --create-namespace \
+              --values infra/helm/ghanem-$app/values-prod.yaml \
+              --set image.tag=${{ inputs.image_tag }} \
+              --atomic \
+              --wait --timeout 15m
+            echo "::endgroup::"
+          done
+
+      - name: Smoke test
+        if: ${{ !inputs.skip_smoke }}
+        run: |
+          if [ -f infra/scripts/smoke-test.sh ]; then
+            ./infra/scripts/smoke-test.sh prod
+          else
+            echo "::warning::smoke-test.sh belum ada. Jalankan manual lewat runbook."
+          fi
+
+      - name: Notify deploy success
+        if: success()
+        run: |
+          echo "Deploy prod sukses: ${{ inputs.image_tag }} by ${{ github.actor }} pada $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # TODO(Phase 10): integrasi notifikasi ke Slack/Teams/email lewat webhook secret.
+
+      - name: Notify deploy failure
+        if: failure()
+        run: |
+          echo "::error::Deploy prod GAGAL. Cek docs/runbooks/rollback.md."
+          # TODO(Phase 10): trigger PagerDuty / on-call alert.

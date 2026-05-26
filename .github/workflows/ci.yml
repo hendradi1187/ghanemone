@@ -1,0 +1,153 @@
+# CI workflow — run pada setiap PR + push ke main/dev.
+# Lint, type-check, test, build verification untuk semua workspaces.
+# Self-hosted runner dipakai supaya akses npm/PyPI mirror SKK Migas + cache lebih cepat.
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev, 'release/**']
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20.11.0'
+  PYTHON_VERSION: '3.12'
+  POETRY_VERSION: '1.8.3'
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  # -------------------------------------------------------------------
+  # JS/TS: lint + type-check + test + build (semua TS workspaces)
+  # -------------------------------------------------------------------
+  js-checks:
+    name: JS — ${{ matrix.task }}
+    runs-on: [self-hosted, linux, skk-migas]
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [lint, type-check, test, build]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Turborepo affected detection butuh git history
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            **/node_modules
+            ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json', 'package.json', '**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ matrix.task }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ matrix.task }}-
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Run turbo ${{ matrix.task }} (affected only on PR)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            npm run ${{ matrix.task }} -- --filter='...[origin/${{ github.base_ref }}]'
+          else
+            npm run ${{ matrix.task }}
+          fi
+
+  # -------------------------------------------------------------------
+  # Python: workers lint (ruff) + type-check (mypy) + test (pytest)
+  # -------------------------------------------------------------------
+  python-checks:
+    name: Python workers — ${{ matrix.task }}
+    runs-on: [self-hosted, linux, skk-migas]
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [lint, type-check, test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 - --version ${{ env.POETRY_VERSION }}
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Cache pip + poetry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/pypoetry
+          key: ${{ runner.os }}-poetry-${{ hashFiles('apps/workers/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      - name: Install workers dependencies
+        working-directory: apps/workers
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Run ${{ matrix.task }}
+        working-directory: apps/workers
+        run: |
+          case "${{ matrix.task }}" in
+            lint)        poetry run ruff check src tests ;;
+            type-check)  poetry run mypy src ;;
+            test)        poetry run pytest --cov=ghanem_workers --cov-report=xml ;;
+          esac
+
+  # -------------------------------------------------------------------
+  # YAML / GH Actions lint (actionlint)
+  # -------------------------------------------------------------------
+  actionlint:
+    name: actionlint
+    runs-on: [self-hosted, linux, skk-migas]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run actionlint
+        run: |
+          bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  # -------------------------------------------------------------------
+  # CI summary gate — required check di branch protection
+  # -------------------------------------------------------------------
+  ci-success:
+    name: CI Success
+    if: always()
+    needs: [js-checks, python-checks, actionlint]
+    runs-on: [self-hosted, linux, skk-migas]
+    steps:
+      - name: Verify all jobs passed
+        run: |
+          if [ "${{ needs.js-checks.result }}" != "success" ] || \
+             [ "${{ needs.python-checks.result }}" != "success" ] || \
+             [ "${{ needs.actionlint.result }}" != "success" ]; then
+            echo "Salah satu job CI gagal."
+            exit 1
+          fi
+          echo "Semua job CI sukses."

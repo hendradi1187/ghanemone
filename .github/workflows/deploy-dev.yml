@@ -1,0 +1,200 @@
+# Deploy ke DEV environment — auto on push ke branch `dev`.
+# Build Docker images per app, push ke ghcr.io, lalu helm upgrade ke k3s dev cluster.
+name: Deploy — Dev
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20.11.0'
+  PYTHON_VERSION: '3.12'
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/ghanem-tech
+  TURBO_TELEMETRY_DISABLED: 1
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  # -------------------------------------------------------------------
+  # Detect apps yang berubah — supaya hanya build+deploy yang relevant
+  # -------------------------------------------------------------------
+  detect-changes:
+    name: Detect changed apps
+    runs-on: [self-hosted, linux, skk-migas]
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      admin: ${{ steps.filter.outputs.admin }}
+      api: ${{ steps.filter.outputs.api }}
+      workers: ${{ steps.filter.outputs.workers }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+            admin:
+              - 'apps/admin/**'
+              - 'packages/**'
+            api:
+              - 'apps/api/**'
+              - 'packages/**'
+            workers:
+              - 'apps/workers/**'
+
+  # -------------------------------------------------------------------
+  # Build + push per app (matrix)
+  # -------------------------------------------------------------------
+  build-and-push:
+    name: Build ${{ matrix.app }}
+    needs: detect-changes
+    runs-on: [self-hosted, linux, skk-migas]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: web
+            changed: ${{ needs.detect-changes.outputs.web }}
+          - app: admin
+            changed: ${{ needs.detect-changes.outputs.admin }}
+          - app: api
+            changed: ${{ needs.detect-changes.outputs.api }}
+          - app: workers
+            changed: ${{ needs.detect-changes.outputs.workers }}
+    steps:
+      - name: Skip if not changed
+        if: matrix.changed != 'true'
+        run: echo "Skip — apps/${{ matrix.app }} tidak berubah."
+
+      - name: Checkout
+        if: matrix.changed == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        if: matrix.changed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login ke ghcr.io
+        if: matrix.changed == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: matrix.changed == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/ghanem-${{ matrix.app }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+            type=raw,value=dev-latest
+
+      - name: Build + push
+        if: matrix.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.app }}-dev
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}-dev
+
+  # -------------------------------------------------------------------
+  # Deploy ke k3s dev cluster via helm upgrade
+  # -------------------------------------------------------------------
+  deploy:
+    name: Helm upgrade — dev
+    needs: [detect-changes, build-and-push]
+    runs-on: [self-hosted, linux, skk-migas]
+    environment:
+      name: dev
+      url: https://dev.ghanem.one
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.4'
+
+      - name: Setup helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.15.4'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.GHANEM_DEV_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Helm upgrade — web
+        if: needs.detect-changes.outputs.web == 'true'
+        run: |
+          helm upgrade --install ghanem-web infra/helm/ghanem-web \
+            --namespace ghanem-dev \
+            --create-namespace \
+            --values infra/helm/ghanem-web/values-dev.yaml \
+            --set image.tag=sha-$(echo ${{ github.sha }} | cut -c1-7) \
+            --wait --timeout 5m
+
+      - name: Helm upgrade — admin
+        if: needs.detect-changes.outputs.admin == 'true'
+        run: |
+          helm upgrade --install ghanem-admin infra/helm/ghanem-admin \
+            --namespace ghanem-dev \
+            --create-namespace \
+            --values infra/helm/ghanem-admin/values-dev.yaml \
+            --set image.tag=sha-$(echo ${{ github.sha }} | cut -c1-7) \
+            --wait --timeout 5m
+
+      - name: Helm upgrade — api
+        if: needs.detect-changes.outputs.api == 'true'
+        run: |
+          helm upgrade --install ghanem-api infra/helm/ghanem-api \
+            --namespace ghanem-dev \
+            --create-namespace \
+            --values infra/helm/ghanem-api/values-dev.yaml \
+            --set image.tag=sha-$(echo ${{ github.sha }} | cut -c1-7) \
+            --wait --timeout 5m
+
+      - name: Helm upgrade — workers
+        if: needs.detect-changes.outputs.workers == 'true'
+        run: |
+          helm upgrade --install ghanem-workers infra/helm/ghanem-workers \
+            --namespace ghanem-dev \
+            --create-namespace \
+            --values infra/helm/ghanem-workers/values-dev.yaml \
+            --set image.tag=sha-$(echo ${{ github.sha }} | cut -c1-7) \
+            --wait --timeout 5m
+
+      - name: Smoke test
+        run: |
+          chmod +x infra/scripts/smoke-test.sh || true
+          if [ -f infra/scripts/smoke-test.sh ]; then
+            ./infra/scripts/smoke-test.sh dev
+          else
+            echo "smoke-test.sh belum ada (akan dibuat di Task #6). Skip."
+          fi

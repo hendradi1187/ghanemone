@@ -1,0 +1,49 @@
+{
+  "name": "@ghanem/config",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared ESLint, Prettier, TSConfig, dan Tailwind base preset untuk semua apps/packages di monorepo.",
+  "main": "index.js",
+  "files": [
+    "eslint-base.js",
+    "eslint-react.js",
+    "prettier-base.js",
+    "tsconfig-base.json",
+    "tailwind-base.ts"
+  ],
+  "exports": {
+    "./eslint-base": "./eslint-base.js",
+    "./eslint-react": "./eslint-react.js",
+    "./prettier-base": "./prettier-base.js",
+    "./tsconfig-base.json": "./tsconfig-base.json",
+    "./tailwind-base": "./tailwind-base.ts"
+  },
+  "scripts": {
+    "lint": "echo \"@ghanem/config — no lint task\"",
+    "test": "echo \"@ghanem/config — no test\"",
+    "type-check": "tsc --noEmit tailwind-base.ts",
+    "build": "echo \"@ghanem/config — no build\"",
+    "clean": "echo \"@ghanem/config — nothing to clean\""
+  },
+  "peerDependencies": {
+    "eslint": "^9.9.0",
+    "prettier": "^3.3.3",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4"
+  },
+  "peerDependenciesMeta": {
+    "eslint": {
+      "optional": true
+    },
+    "prettier": {
+      "optional": true
+    },
+    "tailwindcss": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4"
+  }
+}

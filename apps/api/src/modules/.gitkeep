@@ -1,0 +1,7 @@
+# Folder ini akan diisi di Phase 9 dengan modul domain:
+# - auth/ (OIDC + JIT provisioning per ADR 0003)
+# - datasets/ (CRUD + RBAC)
+# - search/ (Meilisearch integration)
+# - upload/ (MinIO presigned URLs + BullMQ enqueue ke workers)
+# - ai/ (Anthropic proxy)
+# - monitoring/ (health, metrics, audit)
