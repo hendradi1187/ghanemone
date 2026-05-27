@@ -51,7 +51,7 @@ interface ValidationCheck {
 function buildMockFiles(item: PendingDataset): MockFile[] {
   const count = Math.min(Math.max(item.fileCount, 1), 5);
   const avgSize = item.sizeMb / item.fileCount;
-  const formats: Record<PendingDataset['category'], ReadonlyArray<string>> = {
+  const formats: Record<PendingDataset['category'], readonly string[]> = {
     seismic: ['SEG-Y', 'SEG-Y', 'XML'],
     'well-log': ['LAS', 'CSV', 'JSON'],
     production: ['CSV', 'XLSX'],

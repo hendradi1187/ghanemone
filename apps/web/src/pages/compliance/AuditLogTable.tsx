@@ -23,12 +23,12 @@ import {
 import { getAuditLog } from '../../api/compliance';
 import type { ApprovalAction, AuditEntry } from '../../mocks/compliance';
 
-const ACTION_OPTIONS: ReadonlyArray<{
+const ACTION_OPTIONS: readonly {
   value: ApprovalAction;
   label: string;
   icon: IconName;
   cls: string;
-}> = [
+}[] = [
   { value: 'submit', label: 'Submit', icon: 'upload', cls: 'bg-blue-50 text-blue-600 border-blue-100' },
   { value: 'approve', label: 'Setujui', icon: 'check', cls: 'bg-green-50 text-green-700 border-green-200' },
   { value: 'reject', label: 'Tolak', icon: 'x', cls: 'bg-red-100 text-red-500 border-red-100' },

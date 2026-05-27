@@ -39,7 +39,7 @@ import type { DatasetCategoryId, DatasetLicense } from '../../mocks/upload';
 
 /* ─── Options ─────────────────────────────────────────────────────────── */
 
-const CATEGORY_OPTIONS: ReadonlyArray<{ value: DatasetCategoryId; label: string }> = [
+const CATEGORY_OPTIONS: readonly { value: DatasetCategoryId; label: string }[] = [
   { value: 'seismic', label: 'Seismic' },
   { value: 'well-log', label: 'Well Log' },
   { value: 'production', label: 'Production' },
@@ -48,7 +48,7 @@ const CATEGORY_OPTIONS: ReadonlyArray<{ value: DatasetCategoryId; label: string 
   { value: 'document', label: 'Document' },
 ];
 
-const LICENSE_OPTIONS: ReadonlyArray<{ value: DatasetLicense; label: string }> = [
+const LICENSE_OPTIONS: readonly { value: DatasetLicense; label: string }[] = [
   { value: 'CC-BY-4.0', label: 'CC-BY 4.0 (terbuka, atribusi)' },
   { value: 'Internal SPEKTRUM', label: 'Internal SPEKTRUM' },
   { value: 'Restricted SKK Migas', label: 'Restricted SKK Migas' },

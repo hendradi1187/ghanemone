@@ -5,6 +5,9 @@
  *   - Base layers (radio: OSM / Carto / Satellite / Topo)
  *   - Overlay layers (checkbox per kategori dataset + seismic)
  *
+ * Collapsible: saat `collapsed=true`, render hanya icon button 40×40px.
+ * Mirror pattern dari DatasetSidebar.tsx.
+ *
  * Stateless: terima current state + handlers dari parent. Pakai @ghanem/ui
  * primitives untuk a11y (Checkbox + RadioGroup dari Radix).
  */
@@ -46,6 +49,10 @@ export interface LayerPanelProps {
   onSeismicToggle: () => void;
   onHorizonsToggle: () => void;
   onFaultsToggle: () => void;
+  /** Collapsed state — saat true, tampilkan hanya icon button 40×40px. */
+  collapsed?: boolean;
+  /** Handler untuk toggle collapsed. */
+  onToggleCollapse?: () => void;
 }
 
 export function LayerPanel({
@@ -57,30 +64,89 @@ export function LayerPanel({
   onSeismicToggle,
   onHorizonsToggle,
   onFaultsToggle,
+  collapsed = false,
+  onToggleCollapse,
 }: LayerPanelProps): JSX.Element {
   const activeCount =
     categories.filter((c) => c.enabled).length +
     (subsurface.seismicOn ? 1 : 0);
 
+  // State collapsed: tampilkan hanya icon button 40×40px dengan badge aktif
+  if (collapsed) {
+    return (
+      <div className="relative inline-flex flex-col items-center gap-2">
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label="Tampilkan panel layer"
+          aria-expanded={false}
+          title="Tampilkan layer"
+          className={[
+            'relative inline-flex items-center justify-center w-10 h-10',
+            'bg-surface border border-line rounded-3 shadow-3',
+            'text-ink-3 hover:text-ink hover:bg-surface-2',
+            'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
+            'focus-visible:outline-green-500 transition-all duration-hf ease-hf',
+          ].join(' ')}
+        >
+          <Icon name="layers" size={16} aria-hidden />
+          {/* Badge indikator jumlah layer aktif */}
+          {activeCount > 0 ? (
+            <span
+              aria-label={`${activeCount} layer aktif`}
+              className={[
+                'absolute -top-1.5 -right-1.5',
+                'inline-flex items-center justify-center min-w-[18px] h-[18px] px-1',
+                'rounded-full bg-green-500 text-white',
+                'text-[9px] font-bold leading-none',
+              ].join(' ')}
+            >
+              {activeCount}
+            </span>
+          ) : null}
+        </button>
+      </div>
+    );
+  }
+
+  // State expanded: render full panel
   return (
     <aside
       aria-label="Panel layer peta"
       className={[
         'bg-surface border border-line rounded-3 shadow-3',
         'w-[280px] max-h-[calc(100vh-160px)] flex flex-col overflow-hidden',
+        'transition-all duration-hf ease-hf',
       ].join(' ')}
     >
       <header className="flex items-center justify-between px-3.5 py-3 border-b border-line">
         <h2 className="font-display font-semibold text-sm text-ink m-0">Layer</h2>
-        <span
-          className={[
-            'inline-flex items-center px-2 py-0.5 rounded-pill',
-            'text-[10.5px] font-semibold bg-green-50 text-green-700',
-          ].join(' ')}
-          aria-label={`${activeCount} layer aktif`}
-        >
-          {activeCount} aktif
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={[
+              'inline-flex items-center px-2 py-0.5 rounded-pill',
+              'text-[10.5px] font-semibold bg-green-50 text-green-700',
+            ].join(' ')}
+            aria-label={`${activeCount} layer aktif`}
+          >
+            {activeCount} aktif
+          </span>
+          {/* Tombol tutup/collapse panel */}
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label="Tutup panel layer"
+            aria-expanded
+            className={[
+              'inline-flex items-center justify-center w-7 h-7 rounded-pill',
+              'text-ink-3 hover:bg-surface-2',
+              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
+              'focus-visible:outline-green-500',
+            ].join(' ')}
+          >
+            <Icon name="x" size={12} aria-hidden />
+          </button>
+        </div>
       </header>
 
       <div className="px-3.5 py-3 overflow-y-auto flex flex-col gap-4">

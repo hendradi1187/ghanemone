@@ -219,7 +219,7 @@ function MetadataSummary({
   metadata: WizardMetadata;
   organization: string;
 }): JSX.Element {
-  const rows: Array<{ label: string; value: React.ReactNode }> = [
+  const rows: { label: string; value: React.ReactNode }[] = [
     { label: 'Nama', value: metadata.name || <Missing /> },
     { label: 'Provider', value: organization },
     {
@@ -292,7 +292,7 @@ function ValidationSummary({ validation }: { validation: ValidationCheckResult |
   if (!validation) {
     return <p className="text-sm text-amber-700 m-0">Validasi belum dijalankan.</p>;
   }
-  const items: Array<{ label: string; severity: 'pass' | 'warning' | 'fail' }> = [
+  const items: { label: string; severity: 'pass' | 'warning' | 'fail' }[] = [
     { label: 'Topology', severity: validation.topology },
     { label: 'Schema', severity: validation.schema },
     { label: 'Attribute', severity: validation.attributes },

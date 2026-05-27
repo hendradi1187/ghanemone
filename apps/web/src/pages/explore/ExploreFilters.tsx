@@ -45,7 +45,7 @@ export interface ExploreFiltersProps {
   onReset: () => void;
 }
 
-const STATUS_OPTIONS: ReadonlyArray<{ id: DatasetStatus; label: string; description: string }> = [
+const STATUS_OPTIONS: readonly { id: DatasetStatus; label: string; description: string }[] = [
   { id: 'public', label: 'Public', description: 'Akses terbuka — semua user' },
   { id: 'internal', label: 'Internal', description: 'Internal organisasi' },
   { id: 'confidential', label: 'Confidential', description: 'Restricted (perlu izin)' },
