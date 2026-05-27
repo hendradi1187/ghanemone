@@ -1,185 +1,195 @@
 /**
  * Auth store — Zustand slice untuk session client-side.
  *
- * Phase 8: implementasi mock (tidak ada call ke backend OIDC nyata).
- * Phase 9: replace `login()` dengan call ke `POST /v1/auth/oidc/callback` +
- * konversi HttpOnly cookie ke in-memory accessor (lihat docs/auth-flow.md §3).
+ * Sprint 9.3: replaced mock login dengan real API call ke POST /api/v1/auth/login.
  *
- * Persistence: token + user di-mirror ke `localStorage` (key `ghanem.session`).
- * `hydrate()` di-call sekali pada App boot untuk merestore session sebelum
- * AuthGuard berjalan (lihat App.tsx).
+ * Token persistence strategy (localStorage — SPA limitation, documented risk):
+ *   - ghanem.accessToken  — short-lived JWT (15min from backend)
+ *   - ghanem.refreshToken — rotated refresh token
+ *   - ghanem.user         — serialised User for instant hydration
  *
- * Lihat docs/state-model.md §2 untuk rasionale split client vs server state.
+ * Refresh flow delegated to api/client.ts interceptor (attemptTokenRefresh).
+ * This store only handles login/logout/hydrate lifecycle.
  */
 import { create } from 'zustand';
-import type { User, UserRole } from '@ghanem/types';
+import type { User } from '@ghanem/types';
+import { apiClient, clearAuthStorage, STORAGE_KEYS } from '../api/client';
 
-/** Storage key untuk session blob (`{ token, user }`). */
-const STORAGE_KEY = 'ghanem.session';
-
-/** Shape session yang dipersist. */
-interface PersistedSession {
-  token: string;
-  user: User;
-}
-
-export interface AuthState {
-  /** Current user — `null` kalau belum login atau session expired. */
-  user: User | null;
-  /** Access token (mock JWT di Phase 8). Phase 9: HttpOnly cookie, tidak diekspos. */
-  token: string | null;
-  /** Computed: `user !== null`. Convenience getter untuk consumer. */
-  isAuthenticated: boolean;
-  /** Mock-login: email + password ≥ 8 char → success. */
-  login: (email: string, password: string) => Promise<void>;
-  /** Hapus session + localStorage. */
-  logout: () => void;
-  /** Restore session dari localStorage on App mount. */
-  hydrate: () => void;
-}
-
-/* ─── Mock helpers (Phase 8 only) ────────────────────────────────────── */
-
-/** Derive role dari domain email — mimic JIT provisioning (auth-flow.md §9). */
-function inferRoleFromEmail(email: string): UserRole {
-  const domain = email.split('@')[1]?.toLowerCase() ?? '';
-  if (domain.includes('skkmigas') || domain.includes('skk-migas')) return 'regulator';
-  if (
-    domain.includes('phe') ||
-    domain.includes('pertamina') ||
-    domain.includes('medco') ||
-    domain.includes('chevron') ||
-    domain.includes('inpex')
-  ) {
-    return 'kkks_operator';
-  }
-  return 'analyst';
-}
-
-/** Derive organization display name dari email domain. */
-function inferOrgFromEmail(email: string): string {
-  const domain = email.split('@')[1]?.toLowerCase() ?? '';
-  if (domain.includes('skkmigas')) return 'SKK Migas';
-  if (domain.includes('phe')) return 'PHE ONWJ';
-  if (domain.includes('pertamina')) return 'Pertamina Hulu';
-  if (domain.includes('medco')) return 'Medco E&P';
-  if (domain.includes('chevron')) return 'Chevron Indonesia';
-  return 'Public Analyst';
-}
-
-/** Generate 2-char initials dari email local part. */
-function deriveInitials(email: string): string {
-  const local = email.split('@')[0] ?? 'user';
-  const parts = local.split(/[._-]/).filter(Boolean);
-  if (parts.length >= 2) {
-    return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
-  }
-  return local.slice(0, 2).toUpperCase();
-}
-
-/** Mock JWT — base64-encoded header.payload (no signature). NEVER use in prod. */
-function generateMockToken(user: User): string {
-  const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
-  const payload = btoa(
-    JSON.stringify({
-      sub: user.sub,
-      email: user.email,
-      role: user.role,
-      organization: user.organization,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    }),
-  );
-  return `${header}.${payload}.mock`;
-}
-
-function buildMockUser(email: string): User {
-  const role = inferRoleFromEmail(email);
-  const organization = inferOrgFromEmail(email);
-  const now = new Date().toISOString();
-  return {
-    id: `user_${Math.random().toString(36).slice(2, 10)}`,
-    sub: `mock|${email}`,
-    email,
-    fullName: deriveInitials(email),
-    organization,
-    role,
-    provisioningStatus: 'active',
-    createdAt: now,
-    updatedAt: now,
+/** Shape returned by POST /api/v1/auth/login and POST /api/v1/auth/refresh */
+interface AuthLoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: {
+    id: string;
+    email: string;
+    fullName: string | null;
+    role: string | null;
+    organization: string | null;
+    provisioningStatus: string;
+    createdAt: string;
+    updatedAt: string;
   };
 }
 
-function persistSession(session: PersistedSession | null): void {
+function persistTokens(accessToken: string, refreshToken: string, user: User): void {
   if (typeof window === 'undefined') return;
   try {
-    if (session === null) {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } else {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-    }
-  } catch (err) {
-    // reason: localStorage bisa throw di Safari Private Mode / quota exceeded.
-    // Swallow — session tetap valid di memory; user perlu re-login next visit.
-    void err;
+    window.localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
+    window.localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
+    window.localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+  } catch {
+    // reason: Safari Private Mode / quota exceeded — session lives in memory only.
   }
 }
 
-function readSession(): PersistedSession | null {
+function readPersistedSession(): { accessToken: string; refreshToken: string; user: User } | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<PersistedSession>;
-    if (
-      typeof parsed.token === 'string' &&
-      parsed.user &&
-      typeof parsed.user === 'object' &&
-      typeof (parsed.user as User).email === 'string'
-    ) {
-      return parsed as PersistedSession;
-    }
-    return null;
-  } catch (err) {
-    void err;
+    const accessToken = window.localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+    const refreshToken = window.localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+    const userRaw = window.localStorage.getItem(STORAGE_KEYS.USER);
+    if (!accessToken || !refreshToken || !userRaw) return null;
+    const user = JSON.parse(userRaw) as User;
+    if (!user || typeof user.email !== 'string') return null;
+    return { accessToken, refreshToken, user };
+  } catch {
     return null;
   }
 }
 
-/* ─── Store ──────────────────────────────────────────────────────────── */
+/** Normalize backend role string (ADMIN, KKKS_OPERATOR, ...) → UserRole enum. */
+function normalizeRole(role: string | null): User['role'] {
+  if (!role) return null;
+  const map: Record<string, User['role']> = {
+    ADMIN: 'admin',
+    REGULATOR: 'regulator',
+    KKKS_OPERATOR: 'kkks_operator',
+    ANALYST: 'analyst',
+    // already-lowercase passthrough
+    admin: 'admin',
+    regulator: 'regulator',
+    kkks_operator: 'kkks_operator',
+    analyst: 'analyst',
+  };
+  return map[role] ?? 'analyst';
+}
+
+/** Map backend user shape → @ghanem/types User. */
+function mapApiUser(apiUser: AuthLoginResponse['user']): User {
+  return {
+    id: apiUser.id,
+    sub: apiUser.id,
+    email: apiUser.email,
+    fullName: apiUser.fullName,
+    organization: apiUser.organization,
+    role: normalizeRole(apiUser.role),
+    provisioningStatus: (apiUser.provisioningStatus as User['provisioningStatus']) ?? 'active',
+    createdAt: apiUser.createdAt,
+    updatedAt: apiUser.updatedAt,
+  };
+}
+
+export interface AuthState {
+  user: User | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  /** Restore session from localStorage on app mount. No network call. */
+  hydrate: () => void;
+  /** Called by client interceptor after successful token refresh. */
+  setAccessToken: (token: string) => void;
+}
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  token: null,
+  accessToken: null,
+  refreshToken: null,
   isAuthenticated: false,
+  isLoading: false,
+  error: null,
 
   login: async (email, password) => {
-    // Mock validation — Phase 8 only.
-    if (!email.includes('@')) {
-      throw new Error('Format email tidak valid');
+    set({ isLoading: true, error: null });
+    try {
+      const response = await apiClient.post<AuthLoginResponse>('/auth/login', { email, password });
+      const user = mapApiUser(response.user);
+      persistTokens(response.accessToken, response.refreshToken, user);
+      set({
+        user,
+        accessToken: response.accessToken,
+        refreshToken: response.refreshToken,
+        isAuthenticated: true,
+        isLoading: false,
+        error: null,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Login gagal — periksa kredensial Anda';
+      set({ isLoading: false, error: message, isAuthenticated: false });
+      throw err;
     }
-    if (password.length < 8) {
-      throw new Error('Password minimal 8 karakter');
-    }
-    // Simulate network latency 400-700ms.
-    const delayMs = 400 + Math.floor(Math.random() * 300);
-    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-
-    const user = buildMockUser(email);
-    const token = generateMockToken(user);
-    persistSession({ token, user });
-    set({ user, token, isAuthenticated: true });
   },
 
-  logout: () => {
-    persistSession(null);
-    set({ user: null, token: null, isAuthenticated: false });
+  logout: async () => {
+    // Attempt server-side logout (invalidate refresh token) — non-fatal if fails.
+    try {
+      await apiClient.post('/auth/logout');
+    } catch {
+      // reason: logout endpoint failure is non-fatal — clear client state regardless.
+    }
+    clearAuthStorage();
+    set({
+      user: null,
+      accessToken: null,
+      refreshToken: null,
+      isAuthenticated: false,
+      isLoading: false,
+      error: null,
+    });
   },
 
   hydrate: () => {
-    const session = readSession();
+    const session = readPersistedSession();
     if (session) {
-      set({ user: session.user, token: session.token, isAuthenticated: true });
+      set({
+        user: session.user,
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+        isAuthenticated: true,
+      });
+    }
+  },
+
+  setAccessToken: (token: string) => {
+    set({ accessToken: token });
+    // Also store in the old single key for backward compat (client.ts reads directly)
+    try {
+      window.localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, token);
+    } catch {
+      // reason: storage unavailable — token stays in memory.
     }
   },
 }));
+
+// Listen for the custom event emitted by clearAuthStorage() in the client interceptor.
+// This ensures the store is cleared even when the 401 handling happens outside a React tree.
+if (typeof window !== 'undefined') {
+  window.addEventListener('ghanem:auth:cleared', () => {
+    const store = useAuthStore.getState();
+    if (store.isAuthenticated) {
+      useAuthStore.setState({
+        user: null,
+        accessToken: null,
+        refreshToken: null,
+        isAuthenticated: false,
+        error: 'Session berakhir. Silakan login kembali.',
+      });
+    }
+  });
+}
