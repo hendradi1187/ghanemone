@@ -1,0 +1,162 @@
+# Ghanem.one — Local Development Infrastructure Stack
+#
+# Berisi semua layanan backend yang dibutuhkan untuk Phase 9+ development:
+#   - PostgreSQL 16 + PostGIS 3.4 (database utama + spatial queries)
+#   - Redis 7 (queue BullMQ + cache API)
+#   - MinIO (object storage S3-compatible, menggantikan AWS S3 on-prem)
+#   - Meilisearch v1.10 (full-text + metadata search)
+#   - Adminer (GUI database — bukan untuk production)
+#
+# Usage:
+#   Jalankan:  npm run dev:infra              (dari root repo)
+#   Stop:      npm run dev:infra:down
+#   Reset:     npm run dev:infra:reset        (menghapus semua volume data)
+#   Logs:      npm run dev:infra:logs
+#
+# Catatan: File ini dijalankan dari root repo. Path volume mount bersifat
+# relatif terhadap lokasi file ini (infra/).
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 + PostGIS 3.4
+  # Port: 5432
+  # Credentials (dev only): ghanem / dev / ghanem_dev
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: ghanem-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ghanem
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: ghanem_dev
+    ports:
+      # Host port 5433 untuk hindari conflict dengan native PostgreSQL
+      # yang sering sudah ter-install di Windows (port 5432 default).
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ghanem -d ghanem_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ghanem-dev
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — Queue (BullMQ) + Cache
+  # Port: 6379
+  # Persistent mode: appendonly yes (AOF)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: ghanem-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ghanem-dev
+
+  # ---------------------------------------------------------------------------
+  # MinIO — Object Storage S3-compatible
+  # API Port: 9000 | Web Console Port: 9001
+  # Credentials (dev only): minioadmin / minioadmin
+  # Console: http://localhost:9001
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: ghanem-minio-dev
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ghanem-dev
+
+  # ---------------------------------------------------------------------------
+  # Meilisearch v1.10 — Full-text + Metadata Search
+  # Port: 7700
+  # Master key (dev only): masterKey-dev-only
+  # UI: http://localhost:7700
+  # ---------------------------------------------------------------------------
+  meilisearch:
+    image: getmeili/meilisearch:v1.10
+    container_name: ghanem-meilisearch-dev
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: masterKey-dev-only
+      MEILI_ENV: development
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilisearch-data:/meili_data
+    healthcheck:
+      # Pakai curl + 127.0.0.1 eksplisit — Meilisearch bind IPv4-only,
+      # wget default resolve ke [::1] (IPv6) sehingga healthcheck fail.
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ghanem-dev
+
+  # ---------------------------------------------------------------------------
+  # Adminer — Database GUI (dev only, tidak di-expose ke staging/prod)
+  # Port: 8080
+  # Koneksi: Server=postgres, User=ghanem, Password=dev, Database=ghanem_dev
+  # ---------------------------------------------------------------------------
+  adminer:
+    image: adminer:4-standalone
+    container_name: ghanem-adminer-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ghanem-dev
+
+# ---------------------------------------------------------------------------
+# Volumes — data persisten antara restart container
+# Hapus dengan: npm run dev:infra:reset
+# ---------------------------------------------------------------------------
+volumes:
+  postgres-data:
+    name: ghanem-dev-postgres
+  redis-data:
+    name: ghanem-dev-redis
+  minio-data:
+    name: ghanem-dev-minio
+  meilisearch-data:
+    name: ghanem-dev-meilisearch
+
+# ---------------------------------------------------------------------------
+# Network — isolated bridge network untuk dev stack
+# ---------------------------------------------------------------------------
+networks:
+  ghanem-dev:
+    driver: bridge
+    name: ghanem-dev

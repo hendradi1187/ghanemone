@@ -82,3 +82,6 @@ storybook-static/
 .eslintcache
 .parcel-cache/
 .cache/
+
+# Credential placeholder (never commit secrets)
+docs/credential.md
