@@ -1,6 +1,10 @@
 /**
  * ReviewDialog — modal review pending dataset dengan tabs + 3 action buttons.
  *
+ * Sprint 9.5 Phase 1: approve dan reject sekarang pakai real backend endpoints
+ * via useApproveDataset / useRejectDataset hooks dari useCompliance.ts.
+ * requestChanges tetap pakai mock (backend belum punya endpoint ini — Phase 2).
+ *
  * Tabs:
  *   1. Detail Dataset — metadata key-value
  *   2. File-file       — mock list file dengan name/size/format
@@ -25,12 +29,11 @@ import {
   type IconName,
 } from '@ghanem/ui';
 import {
-  approveDataset,
-  rejectDataset,
   requestChanges,
 } from '../../api/compliance';
 import { RISK_FLAG_META, type PendingDataset } from '../../mocks/compliance';
 import { useAuth } from '../../hooks/use-auth';
+import { useApproveDataset, useRejectDataset } from '../../hooks/useCompliance';
 
 type ActionKind = 'approve' | 'reject' | 'request-changes';
 
@@ -167,6 +170,9 @@ export function ReviewDialog({
   const [submitting, setSubmitting] = useState(false);
   const [reasonError, setReasonError] = useState<string | null>(null);
 
+  const approveMutation = useApproveDataset();
+  const rejectMutation = useRejectDataset();
+
   const files = useMemo(() => buildMockFiles(dataset), [dataset]);
   const checks = useMemo(() => buildValidationChecks(dataset), [dataset]);
 
@@ -202,12 +208,20 @@ export function ReviewDialog({
     setSubmitting(true);
     try {
       if (pendingAction === 'approve') {
-        await approveDataset(dataset.id, user, reasonText.trim() || undefined);
+        await approveMutation.mutateAsync({
+          datasetId: dataset.id,
+          notes: reasonText.trim() || undefined,
+        });
         toast.success('Dataset disetujui', { description: dataset.title });
       } else if (pendingAction === 'reject') {
-        await rejectDataset(dataset.id, user, reasonText.trim());
+        await rejectMutation.mutateAsync({
+          datasetId: dataset.id,
+          reason: reasonText.trim(),
+        });
         toast.success('Dataset ditolak', { description: dataset.title });
       } else {
+        // request-changes: backend endpoint not yet implemented — Phase 2.
+        // Falls back to mock to preserve UX flow.
         await requestChanges(dataset.id, user, reasonText.trim());
         toast.success('Permintaan perubahan dikirim', { description: dataset.title });
       }
@@ -215,14 +229,13 @@ export function ReviewDialog({
       onAction();
       onOpenChange(false);
     } catch (err) {
-      void err;
-      toast.error('Gagal memproses aksi', {
-        description: 'Terjadi kesalahan. Coba lagi.',
-      });
+      const message =
+        err instanceof Error ? err.message : 'Terjadi kesalahan. Coba lagi.';
+      toast.error('Gagal memproses aksi', { description: message });
     } finally {
       setSubmitting(false);
     }
-  }, [dataset, onAction, onOpenChange, pendingAction, reasonText, reset, user]);
+  }, [approveMutation, dataset, onAction, onOpenChange, pendingAction, reasonText, rejectMutation, reset, user]);
 
   return (
     <Dialog.Root open={open} onOpenChange={handleClose}>

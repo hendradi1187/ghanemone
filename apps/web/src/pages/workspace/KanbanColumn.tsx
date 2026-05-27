@@ -1,13 +1,7 @@
 /**
- * KanbanColumn — satu kolom dalam KanbanBoard (Todo/In Progress/Review/Done).
+ * KanbanColumn — satu kolom dalam KanbanBoard (TODO/IN_PROGRESS/REVIEW/DONE).
  *
- * Berisi:
- *   - Header: label status + count + accent border-top
- *   - SortableContext: list TaskCard
- *   - Footer: "Tambah task" button
- *
- * Column itu sendiri adalah droppable area via `useDroppable` supaya tasks
- * bisa di-drop ke kolom kosong (tanpa pakai placeholder card).
+ * Sprint 9.5 Phase 2: Updated to use Task/TaskStatus from api/projects.ts.
  *
  * A11y:
  *   - `<section aria-labelledby>` untuk landmark per-kolom
@@ -16,7 +10,8 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Icon } from '@ghanem/ui';
-import { TASK_STATUS_META, type Task, type TaskStatus } from '../../mocks/workspace';
+import type { Task, TaskStatus } from '../../api/projects';
+import { TASK_STATUS_META } from './KanbanBoard';
 import { TaskCard } from './TaskCard';
 
 export interface KanbanColumnProps {

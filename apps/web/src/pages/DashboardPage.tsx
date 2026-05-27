@@ -1,16 +1,30 @@
 /**
  * DashboardPage — landing untuk authenticated user, persona-aware.
  *
- * Layout (Phase 8.9, rewrite dari placeholder Phase 8.6):
- *   - Header: greeting "Selamat {time-of-day}, {user}" + persona badge
- *   - Row 1: 4 KPI cards (StatCard dari @ghanem/ui)
- *   - Row 2: charts grid (line trend + bar top providers) + activity feed
- *   - Row 3: pie kategori + donut status + quick actions
+ * Sprint 9.5 Phase 2: All KPI cards AND charts now use real backend data.
  *
- * Data fetching: TanStack Query (semua endpoint mock di-wrapped `api/dashboard.ts`).
- * Responsive: collapses ke single column < 768px (md breakpoint).
+ * KPI Row 1 sources (useStatsOverview — single call):
+ *   totalDatasets, totalProviders, pendingApprovals, totalWells
+ *
+ * Charts Row 2:
+ *   - LineChartCard "Tren Upload Dataset" → useDatasetsByMonth()
+ *   - BarChartCard "Upload per Provider" → useUploadsByProvider() top 5
+ *
+ * Charts Row 3:
+ *   - PieChartCard "Distribusi Kategori" → useDatasetsByCategory()
+ *   - DonutChartCard "Status Compliance" → useComplianceStatus()
+ *
+ * Recent Uploads remains via useDashboardStats (GET /datasets?sortBy=createdAt).
+ * Activity feed remains mock (no server endpoint yet).
+ *
+ * Layout:
+ *   - Header: greeting + persona badge
+ *   - Row 1: 4 KPI stat cards
+ *   - Row 2: 2/3 charts + 1/3 activity
+ *   - Row 3: pie + donut + quick actions
  */
 import { useMemo, type ReactElement } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChartCard,
@@ -20,16 +34,17 @@ import {
   PieChartCard,
   StatCard,
 } from '@ghanem/ui';
-import {
-  fetchActivityFeed,
-  fetchCategoryDistribution,
-  fetchDatasetTrend,
-  fetchKpiSummary,
-  fetchProvidersTop5,
-  fetchStatusBreakdown,
-} from '../api/dashboard';
+import { fetchActivityFeed } from '../api/dashboard';
 import { rolePersona, type Persona } from '../mocks/dashboard';
 import { useAuth } from '../hooks/use-auth';
+import { useDashboardStats } from '../hooks/useDashboard';
+import {
+  useStatsOverview,
+  useDatasetsByCategory,
+  useDatasetsByMonth,
+  useUploadsByProvider,
+  useComplianceStatus,
+} from '../hooks/useStats';
 import { ActivityFeed } from './dashboard/ActivityFeed';
 import { QuickActions } from './dashboard/QuickActions';
 
@@ -56,42 +71,79 @@ function fmtInt(value: number): string {
   return value.toLocaleString('id-ID');
 }
 
+// Palette for bar chart bars (top 5 providers).
+const PROVIDER_COLORS = [
+  '#22c55e', // green-500
+  '#3b82f6', // blue-500
+  '#f59e0b', // amber-500
+  '#8b5cf6', // violet-500
+  '#ec4899', // pink-500
+];
+
 export function DashboardPage(): ReactElement {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const persona = rolePersona(user?.role);
   const displayName = user?.fullName ?? user?.email ?? 'Pengguna';
   const greeting = useMemo(() => greetingForHour(new Date().getHours()), []);
 
-  const kpiQuery = useQuery({
-    queryKey: ['dashboard', 'kpi', persona],
-    queryFn: () => fetchKpiSummary(persona),
-    staleTime: 60_000,
-  });
-  const trendQuery = useQuery({
-    queryKey: ['dashboard', 'trend', 12],
-    queryFn: () => fetchDatasetTrend(12),
-    staleTime: 60_000,
-  });
-  const providersQuery = useQuery({
-    queryKey: ['dashboard', 'providers-top5'],
-    queryFn: fetchProvidersTop5,
-    staleTime: 60_000,
-  });
-  const categoryQuery = useQuery({
-    queryKey: ['dashboard', 'category-dist'],
-    queryFn: fetchCategoryDistribution,
-    staleTime: 60_000,
-  });
-  const statusQuery = useQuery({
-    queryKey: ['dashboard', 'status-breakdown'],
-    queryFn: fetchStatusBreakdown,
-    staleTime: 60_000,
-  });
+  /* ── Phase 2: Real KPI from /stats/overview ──────────────────────── */
+  const overviewQuery = useStatsOverview();
+
+  /* ── Fallback: useDashboardStats for recent uploads ───────────────── */
+  const { recentUploads, isLoading: uploadsLoading } = useDashboardStats();
+
+  /* ── Real chart data from /stats/* ───────────────────────────────── */
+  const monthlyQuery = useDatasetsByMonth();
+  const categoryQuery = useDatasetsByCategory();
+  const providerQuery = useUploadsByProvider();
+  const complianceQuery = useComplianceStatus();
+
+  /* ── Mock activity feed (no endpoint yet) ────────────────────────── */
   const activityQuery = useQuery({
     queryKey: ['dashboard', 'activity', 8],
     queryFn: () => fetchActivityFeed(8),
     staleTime: 60_000,
   });
+
+  /* ── Derived data ─────────────────────────────────────────────────── */
+
+  const kpiLoading = overviewQuery.isLoading;
+  const overview = overviewQuery.data;
+
+  // Monthly trend → LineChart series with single "count" series.
+  const monthlyData = useMemo(
+    () => (monthlyQuery.data ?? []).map((d) => ({ month: d.label, count: d.count })),
+    [monthlyQuery.data],
+  );
+
+  // Top 5 providers → BarChart.
+  const top5Providers = useMemo(
+    () =>
+      (providerQuery.data ?? [])
+        .slice(0, 5)
+        .map((p) => ({ name: p.providerName, count: p.count })),
+    [providerQuery.data],
+  );
+
+  // Category distribution → PieChart: { name, value }.
+  const categoryData = useMemo(
+    () => (categoryQuery.data ?? []).map((c) => ({ name: c.label, value: c.count })),
+    [categoryQuery.data],
+  );
+
+  // Compliance → DonutChart: { name, value }.
+  const complianceData = useMemo(() => {
+    const d = complianceQuery.data;
+    if (!d) return [];
+    return [
+      { name: 'Approved', value: d.approved },
+      { name: 'Draft', value: d.draft },
+      { name: 'Pending Review', value: d.pendingReview },
+      { name: 'Rejected', value: d.rejected },
+      { name: 'Archived', value: d.archived },
+    ].filter((s) => s.value > 0);
+  }, [complianceQuery.data]);
 
   const tone = PERSONA_TONE[persona];
 
@@ -120,88 +172,182 @@ export function DashboardPage(): ReactElement {
         </span>
       </header>
 
-      {/* Row 1: KPI grid */}
+      {/* Row 1: KPI grid — real data from /stats/overview */}
       <section
         aria-label="Ringkasan KPI"
         className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
       >
-        {kpiQuery.isLoading
+        {kpiLoading
           ? Array.from({ length: 4 }).map((_, idx) => (
               <div
                 key={idx}
-                className="bg-surface border border-line rounded-3 p-4 h-[88px] animate-skeleton-shimmer"
+                className="bg-surface border border-line rounded-3 p-4 h-[88px] animate-pulse"
                 aria-busy="true"
                 aria-label="Memuat KPI"
               />
             ))
-          : kpiQuery.data?.map((kpi) => (
+          : (
+            <>
               <StatCard
-                key={kpi.id}
-                label={kpi.label}
-                value={kpi.value}
-                unit={kpi.unit}
-                change={kpi.change}
-                icon={kpi.icon}
-                tone={kpi.tone}
+                label="Total Dataset"
+                value={fmtInt(overview?.totalDatasets ?? 0)}
+                icon="database"
+                tone="green"
                 size="md"
               />
-            ))}
+              <StatCard
+                label="Provider Aktif"
+                value={fmtInt(overview?.totalProviders ?? 0)}
+                icon="user"
+                tone="blue"
+                size="md"
+              />
+              <StatCard
+                label="Pending Approval"
+                value={fmtInt(overview?.pendingApprovals ?? 0)}
+                icon="clock"
+                tone="amber"
+                size="md"
+              />
+              <StatCard
+                label="Total Sumur"
+                value={fmtInt(overview?.totalWells ?? 0)}
+                icon="database"
+                tone="purple"
+                size="md"
+              />
+            </>
+          )}
       </section>
 
-      {/* Row 2: 2/3 charts grid + 1/3 activity */}
+      {/* Additional KPI row — new fields from overview */}
+      {overview ? (
+        <section
+          aria-label="KPI tambahan"
+          className="grid gap-3 grid-cols-2 sm:grid-cols-4"
+        >
+          <StatCard
+            label="Work Areas"
+            value={fmtInt(overview.totalWorkAreas)}
+            icon="map"
+            tone="green"
+            size="sm"
+          />
+          <StatCard
+            label="Fasilitas"
+            value={fmtInt(overview.totalFacilities)}
+            icon="database"
+            tone="blue"
+            size="sm"
+          />
+          <StatCard
+            label="Pertumbuhan Bulan Ini"
+            value={`+${overview.growthLastMonth}`}
+            unit=" dataset"
+            icon="activity"
+            tone="green"
+            size="sm"
+          />
+          <StatCard
+            label="Alert Aktif"
+            value={fmtInt(overview.activeAlerts)}
+            icon="warn"
+            tone={overview.activeAlerts > 0 ? 'amber' : 'neutral'}
+            size="sm"
+          />
+        </section>
+      ) : null}
+
+      {/* Recent Uploads section */}
+      {!uploadsLoading && recentUploads.length > 0 ? (
+        <section
+          aria-label="Upload terbaru"
+          className="bg-surface border border-line rounded-3 p-4 flex flex-col gap-3"
+        >
+          <h3 className="font-display font-semibold text-h3 text-ink m-0">Upload Terbaru</h3>
+          <ul className="m-0 p-0 list-none flex flex-col gap-1">
+            {recentUploads.map((upload) => (
+              <li key={upload.id}>
+                <button
+                  type="button"
+                  onClick={() => void navigate(`/datasets/${upload.id}`)}
+                  className={[
+                    'w-full flex items-center gap-3 py-2 px-2 rounded-2 text-left',
+                    'hover:bg-surface-2 transition-colors',
+                    'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500',
+                  ].join(' ')}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex items-center justify-center w-8 h-8 rounded-2 bg-green-50 text-green-700 flex-none"
+                  >
+                    <Icon name="database" size={14} aria-hidden />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="m-0 text-sm font-semibold text-ink truncate">{upload.title}</p>
+                    <p className="m-0 text-xs text-ink-4">
+                      {upload.provider} · {upload.category}
+                    </p>
+                  </div>
+                  <Icon name="arrowR" size={12} className="text-ink-4 flex-none" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {/* Row 2: 2/3 charts + 1/3 activity */}
       <section
         aria-label="Tren dan aktivitas"
         className="grid gap-3 grid-cols-1 lg:grid-cols-3"
       >
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
           <LineChartCard
-            title="Aktivitas Data"
-            subtitle="Dataset ditambahkan & diakses per bulan"
-            data={trendQuery.data ?? []}
+            title="Tren Upload Dataset"
+            subtitle="Jumlah dataset per bulan (12 bulan terakhir)"
+            data={monthlyData}
             xKey="month"
-            series={[
-              { key: 'added', label: 'Ditambahkan' },
-              { key: 'accessed', label: 'Diakses' },
-            ]}
+            series={[{ key: 'count', label: 'Dataset' }]}
             height={260}
-            loading={trendQuery.isLoading}
+            loading={monthlyQuery.isLoading}
             formatValue={fmtInt}
           />
           <BarChartCard
-            title="Top 5 Provider"
-            subtitle="Berdasarkan jumlah dataset"
-            data={(providersQuery.data ?? []).map((p) => ({ name: p.name, count: p.count }))}
+            title="Upload per Provider"
+            subtitle="Top 5 KKKS berdasarkan jumlah dataset"
+            data={top5Providers}
             xKey="name"
             yKey="count"
-            colors={(providersQuery.data ?? []).map((p) => p.color)}
+            colors={PROVIDER_COLORS}
             orientation="horizontal"
             height={260}
-            loading={providersQuery.isLoading}
+            loading={providerQuery.isLoading}
             formatValue={fmtInt}
           />
         </div>
         <ActivityFeed events={activityQuery.data ?? []} loading={activityQuery.isLoading} />
       </section>
 
-      {/* Row 3: pie kategori + donut status + quick actions */}
+      {/* Row 3: pie kategori + donut compliance + quick actions */}
       <section
         aria-label="Komposisi dan aksi cepat"
         className="grid gap-3 grid-cols-1 lg:grid-cols-3"
       >
         <PieChartCard
           title="Distribusi Kategori"
-          subtitle="Persentase per kategori"
-          data={categoryQuery.data ?? []}
+          subtitle="Persentase per kategori dataset"
+          data={categoryData}
           height={300}
           loading={categoryQuery.isLoading}
           formatValue={fmtInt}
         />
         <DonutChartCard
-          title="Status Sensitivitas"
-          subtitle="Public · Internal · Confidential"
-          data={statusQuery.data ?? []}
+          title="Status Compliance"
+          subtitle="Approved · Pending · Draft · Rejected"
+          data={complianceData}
           height={300}
-          loading={statusQuery.isLoading}
+          loading={complianceQuery.isLoading}
           centerLabel="Total"
           formatValue={fmtInt}
         />

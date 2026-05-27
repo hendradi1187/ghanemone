@@ -1,22 +1,21 @@
 /**
  * BulkActionDialog — konfirmasi bulk approve/reject dengan preview + reason field.
  *
+ * Sprint 9.5 Phase 1: approve dan reject sekarang pakai real backend endpoints
+ * via useApproveDataset / useRejectDataset hooks. Promise.allSettled pattern
+ * dipertahankan (parallel client-side calls per item) karena backend belum punya
+ * single bulk endpoint. Phase 2 akan upgrade ke POST /datasets/bulk-action.
+ *
  * Behavior:
  *   - Warning banner di top body
  *   - Preview list: 5 item pertama, sisanya "+N lainnya"
  *   - Reason: required untuk reject, optional untuk approve
- *   - Submit: Promise.all parallel call per item; toast aggregate hasil
- *
- * Phase 9 considerations:
- *   - Untuk dataset >50 items, Phase 9 ganti dengan single bulk endpoint
- *     (POST /v1/compliance/datasets/bulk-action) supaya atomic + lebih efisien.
- *   - Sementara client-side Promise.all cukup untuk volume saat ini.
+ *   - Submit: Promise.allSettled parallel; toast aggregate hasil
  */
 import { useCallback, useState } from 'react';
 import { Button, Dialog, Icon, Textarea, toast } from '@ghanem/ui';
-import { approveDataset, rejectDataset } from '../../api/compliance';
 import type { PendingDataset } from '../../mocks/compliance';
-import { useAuth } from '../../hooks/use-auth';
+import { useApproveDataset, useRejectDataset } from '../../hooks/useCompliance';
 
 export interface BulkActionDialogProps {
   action: 'approve' | 'reject';
@@ -35,7 +34,8 @@ export function BulkActionDialog({
   onOpenChange,
   onComplete,
 }: BulkActionDialogProps): JSX.Element {
-  const { user } = useAuth();
+  const approveMutation = useApproveDataset();
+  const rejectMutation = useRejectDataset();
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -58,10 +58,6 @@ export function BulkActionDialog({
   );
 
   const handleSubmit = useCallback(async () => {
-    if (!user) {
-      toast.error('Sesi tidak valid', { description: 'Silakan login ulang.' });
-      return;
-    }
     if (isReject && reason.trim().length < 3) {
       setError('Alasan penolakan wajib diisi minimal 3 karakter.');
       return;
@@ -73,8 +69,8 @@ export function BulkActionDialog({
     const results = await Promise.allSettled(
       items.map((item) =>
         isReject
-          ? rejectDataset(item.id, user, trimmed)
-          : approveDataset(item.id, user, trimmed || undefined),
+          ? rejectMutation.mutateAsync({ datasetId: item.id, reason: trimmed })
+          : approveMutation.mutateAsync({ datasetId: item.id, notes: trimmed || undefined }),
       ),
     );
     const okCount = results.filter((r) => r.status === 'fulfilled').length;
@@ -100,7 +96,7 @@ export function BulkActionDialog({
     setSubmitting(false);
     setReason('');
     onComplete();
-  }, [isReject, items, onComplete, reason, total, user]);
+  }, [approveMutation, isReject, items, onComplete, reason, rejectMutation, total]);
 
   return (
     <Dialog.Root open={open} onOpenChange={handleClose}>

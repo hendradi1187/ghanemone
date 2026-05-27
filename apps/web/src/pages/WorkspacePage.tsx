@@ -1,38 +1,27 @@
 /**
  * WorkspacePage — `/workspace` route (project list view).
  *
- * Phase 8.12. Layout: header + filter toolbar + grid of ProjectCard.
- * "Tambah project" hanya toast untuk Phase 8 (creator flow defer ke Phase 9).
+ * Sprint 9.5 Phase 2: Connected to real backend via useProjects().
+ * Backend returns taskCounts per project — no need for seed-based count map.
  *
- * URL state: `?status=active|archived` + `?q=…`.
+ * URL state: `?status=ACTIVE|ARCHIVED` + `?q=…`.
  *
  * A11y: heading hierarchy, search label, filter buttons aria-pressed.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { EmptyState, Icon, toast } from '@ghanem/ui';
 import { useDebouncedValue } from '../hooks/use-debounced-value';
-import { getProjects } from '../api/workspace';
-import { WORKSPACE_TASKS_SEED, type ProjectStatus } from '../mocks/workspace';
+import { useProjects } from '../hooks/useWorkspace';
+import type { ProjectStatus } from '../api/projects';
 import { ProjectCard } from './workspace/ProjectCard';
 
 function parseStatus(raw: string | null): ProjectStatus | undefined {
-  if (raw === 'active' || raw === 'archived') return raw;
+  if (raw === 'ACTIVE' || raw === 'ARCHIVED') return raw;
+  // Legacy lowercase support
+  if (raw === 'active') return 'ACTIVE';
+  if (raw === 'archived') return 'ARCHIVED';
   return undefined;
-}
-
-/**
- * Hitung task count per project. Pakai seed sebagai baseline — Phase 8 tidak
- * load semua tasks per project di list view (perf). Phase 9 ganti dengan
- * `/v1/projects?include=task_count`.
- */
-function buildTaskCountMap(): Record<string, number> {
-  const map: Record<string, number> = {};
-  for (const t of WORKSPACE_TASKS_SEED) {
-    map[t.projectId] = (map[t.projectId] ?? 0) + 1;
-  }
-  return map;
 }
 
 export function WorkspacePage(): JSX.Element {
@@ -68,28 +57,19 @@ export function WorkspacePage(): JSX.Element {
     [setSearchParams],
   );
 
-  const projectsQuery = useQuery({
-    queryKey: ['workspace', 'projects'],
-    queryFn: getProjects,
-    staleTime: 60_000,
-  });
-
-  const taskCountMap = useMemo(buildTaskCountMap, []);
+  // useProjects fetches backend with optional status filter.
+  const projectsQuery = useProjects(status);
 
   const filtered = useMemo(() => {
-    const list = projectsQuery.data ?? [];
-    let result = list;
-    if (status) result = result.filter((p) => p.status === status);
-    if (debouncedQ) {
-      const needle = debouncedQ.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(needle) ||
-          p.description.toLowerCase().includes(needle),
-      );
-    }
-    return result;
-  }, [projectsQuery.data, status, debouncedQ]);
+    const list = projectsQuery.data?.items ?? [];
+    if (!debouncedQ) return list;
+    const needle = debouncedQ.toLowerCase();
+    return list.filter(
+      (p) =>
+        p.name.toLowerCase().includes(needle) ||
+        (p.description ?? '').toLowerCase().includes(needle),
+    );
+  }, [projectsQuery.data, debouncedQ]);
 
   const handleAddProject = useCallback(() => {
     toast.info('Tambah project — segera hadir', {
@@ -168,13 +148,13 @@ export function WorkspacePage(): JSX.Element {
             <StatusButton label="Semua" active={!status} onClick={() => updateStatus(undefined)} />
             <StatusButton
               label="Aktif"
-              active={status === 'active'}
-              onClick={() => updateStatus('active')}
+              active={status === 'ACTIVE'}
+              onClick={() => updateStatus('ACTIVE')}
             />
             <StatusButton
               label="Archived"
-              active={status === 'archived'}
-              onClick={() => updateStatus('archived')}
+              active={status === 'ARCHIVED'}
+              onClick={() => updateStatus('ARCHIVED')}
             />
           </div>
         </div>
@@ -220,11 +200,15 @@ export function WorkspacePage(): JSX.Element {
 
         {!projectsQuery.isLoading && filtered.length > 0 ? (
           <div role="list" className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((p) => (
-              <div role="listitem" key={p.id}>
-                <ProjectCard project={p} taskCount={taskCountMap[p.id] ?? 0} />
-              </div>
-            ))}
+            {filtered.map((p) => {
+              // Backend returns `taskCount` (singular number total), not `taskCounts` (object per status)
+              const taskCount = p.taskCount ?? 0;
+              return (
+                <div role="listitem" key={p.id}>
+                  <ProjectCard project={p} taskCount={taskCount} />
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </section>

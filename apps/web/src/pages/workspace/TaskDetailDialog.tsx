@@ -1,12 +1,13 @@
 /**
  * TaskDetailDialog — modal create/edit task.
  *
- * Mode:
- *   - `mode='create'`: form kosong, defaultValues di-build dari `defaults`
- *     (mis. status pre-filled dari kolom yang user klik "+")
- *   - `mode='edit'`: form ter-populate dari `task`
+ * Sprint 9.5 Phase 2: Updated to use Task/TaskStatus/TaskPriority from api/projects.ts.
+ * Backend task shape: assignee is { id, name } | null, priority is LOW/MED/HIGH/URGENT.
+ * Assignee field simplified to text input (no member catalog from backend yet).
  *
- * Validation via Zod.
+ * Mode:
+ *   - `mode='create'`: form kosong, defaultStatus pre-filled
+ *   - `mode='edit'`: form populated from task
  *
  * A11y:
  *   - Dialog dari @ghanem/ui handle focus trap + ESC
@@ -29,24 +30,27 @@ import {
   zodResolver,
 } from '@ghanem/ui';
 import { z } from 'zod';
-import {
-  TASK_STATUSES,
-  TASK_STATUS_META,
-  WORKSPACE_MEMBERS,
-  type Task,
-  type TaskStatus,
-} from '../../mocks/workspace';
+import type { Task, TaskPriority, TaskStatus } from '../../api/projects';
+import { TASK_STATUS_META, TASK_STATUSES } from './KanbanBoard';
+
+const PRIORITIES: readonly TaskPriority[] = ['LOW', 'MED', 'HIGH', 'URGENT'];
+const PRIORITY_LABELS: Record<TaskPriority, string> = {
+  LOW: 'Rendah',
+  MED: 'Sedang',
+  HIGH: 'Tinggi',
+  URGENT: 'Urgen',
+};
 
 const taskSchema = z.object({
   title: z.string().min(3, 'Judul minimal 3 karakter').max(120, 'Judul maksimal 120 karakter'),
   description: z.string().max(500, 'Deskripsi maksimal 500 karakter').optional(),
-  status: z.enum(['todo', 'in_progress', 'review', 'done']),
-  assigneeId: z.string().min(1, 'Pilih assignee'),
-  labels: z.string().optional(),
+  status: z.enum(['TODO', 'IN_PROGRESS', 'REVIEW', 'DONE']),
+  priority: z.enum(['LOW', 'MED', 'HIGH', 'URGENT']),
+  assigneeId: z.string().optional(),
   dueDate: z
     .string()
-    .min(1, 'Pilih tanggal due')
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal tidak valid'),
+    .optional()
+    .refine((v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v), { message: 'Format tanggal tidak valid' }),
 });
 
 type TaskFormValues = z.infer<typeof taskSchema>;
@@ -55,22 +59,18 @@ export interface TaskDetailDialogProps {
   open: boolean;
   onClose: () => void;
   mode: 'create' | 'edit';
-  /** Untuk mode='edit'. */
   task?: Task | null;
-  /** Untuk mode='create' — default values (mis. status pre-filled). */
-  defaults?: { status?: TaskStatus; projectId: string };
-  /** Submit handler. Returns Promise yang resolve setelah persist. */
+  defaultStatus?: TaskStatus;
   onSubmit: (values: {
     title: string;
     description: string;
     status: TaskStatus;
-    assigneeId: string;
-    assigneeInitials: string;
-    labels: string[];
-    dueDate: string;
+    priority: TaskPriority;
+    assigneeId?: string;
+    dueDate?: string;
   }) => Promise<void>;
-  /** Untuk mode='edit' — delete handler. */
   onDelete?: (task: Task) => void;
+  isSubmitting?: boolean;
 }
 
 function todayIso(): string {
@@ -86,30 +86,31 @@ export function TaskDetailDialog({
   onClose,
   mode,
   task,
-  defaults,
+  defaultStatus = 'TODO',
   onSubmit,
   onDelete,
+  isSubmitting = false,
 }: TaskDetailDialogProps): JSX.Element {
   const defaultValues: TaskFormValues = useMemo(() => {
     if (mode === 'edit' && task) {
       return {
         title: task.title,
-        description: task.description,
+        description: task.description ?? '',
         status: task.status,
-        assigneeId: task.assigneeId,
-        labels: task.labels.join(', '),
-        dueDate: task.dueDate,
+        priority: task.priority,
+        assigneeId: task.assignee?.id ?? '',
+        dueDate: task.dueDate ?? todayIso(),
       };
     }
     return {
       title: '',
       description: '',
-      status: defaults?.status ?? 'todo',
-      assigneeId: WORKSPACE_MEMBERS[0]?.id ?? '',
-      labels: '',
+      status: defaultStatus,
+      priority: 'MED' as TaskPriority,
+      assigneeId: '',
       dueDate: todayIso(),
     };
-  }, [mode, task, defaults]);
+  }, [mode, task, defaultStatus]);
 
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskSchema),
@@ -121,19 +122,13 @@ export function TaskDetailDialog({
   }, [open, defaultValues, form]);
 
   const handleSubmit = form.handleSubmit(async (values) => {
-    const member = WORKSPACE_MEMBERS.find((m) => m.id === values.assigneeId);
-    const labels = (values.labels ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
     await onSubmit({
       title: values.title,
       description: values.description ?? '',
       status: values.status,
-      assigneeId: values.assigneeId,
-      assigneeInitials: member?.initials ?? '??',
-      labels,
-      dueDate: values.dueDate,
+      priority: values.priority,
+      assigneeId: values.assigneeId || undefined,
+      dueDate: values.dueDate || undefined,
     });
   });
 
@@ -152,7 +147,7 @@ export function TaskDetailDialog({
           <Dialog.Title>{title}</Dialog.Title>
           <Dialog.Description>
             {mode === 'edit'
-              ? 'Update detail task. Perubahan akan tersimpan ke browser ini.'
+              ? 'Update detail task. Perubahan akan tersimpan ke server.'
               : 'Buat task baru di project ini. Status default dari kolom yang Anda pilih.'}
           </Dialog.Description>
         </Dialog.Header>
@@ -199,16 +194,16 @@ export function TaskDetailDialog({
                 )}
               </FormField>
 
-              <FormField<TaskFormValues> name="assigneeId" label="Assignee" required>
+              <FormField<TaskFormValues> name="priority" label="Prioritas" required>
                 {(field) => (
                   <Select value={field.value} onValueChange={field.onChange}>
                     <SelectTrigger size="md">
-                      <SelectValue placeholder="Pilih assignee" />
+                      <SelectValue placeholder="Pilih prioritas" />
                     </SelectTrigger>
                     <SelectContent>
-                      {WORKSPACE_MEMBERS.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.fullName} ({m.initials})
+                      {PRIORITIES.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {PRIORITY_LABELS[p]}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -221,18 +216,17 @@ export function TaskDetailDialog({
               <FormField<TaskFormValues>
                 name="dueDate"
                 label="Jatuh tempo"
-                required
                 hint="Format: YYYY-MM-DD."
               >
                 <Input type="date" />
               </FormField>
 
               <FormField<TaskFormValues>
-                name="labels"
-                label="Labels"
-                hint="Pisahkan dengan koma. Mis. 'analysis, gis'."
+                name="assigneeId"
+                label="Assignee ID"
+                hint="User ID dari anggota tim (opsional)."
               >
-                <Input placeholder="analysis, gis" />
+                <Input placeholder="usr-uuid" />
               </FormField>
             </div>
 
@@ -252,7 +246,11 @@ export function TaskDetailDialog({
                   Batal
                 </Button>
               </Dialog.Close>
-              <Button variant="primary" type="submit" loading={form.formState.isSubmitting}>
+              <Button
+                variant="primary"
+                type="submit"
+                loading={form.formState.isSubmitting || isSubmitting}
+              >
                 {submitLabel}
               </Button>
             </Dialog.Footer>

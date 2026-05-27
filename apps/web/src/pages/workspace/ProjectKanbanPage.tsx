@@ -1,51 +1,48 @@
 /**
  * ProjectKanbanPage — `/workspace/:projectId` route.
  *
+ * Sprint 9.5 Phase 2: Connected to real backend via useProject/useProjectTasks/
+ * useCreateTask/useUpdateTask/useDeleteTask/useMoveTask from hooks/useWorkspace.ts.
+ *
  * Layout:
  *   - Breadcrumb back ke /workspace
- *   - Header: project name, members avatar stack, "Tambah task" button
+ *   - Header: project name, owner, organization, "Tambah task" button
  *   - KanbanBoard (4 columns dengan dnd-kit)
  *   - TaskDetailDialog (create + edit)
  *
- * Drag-drop semantics handled di KanbanBoard. Halaman ini:
- *   - Fetch project + tasks via TanStack Query (cache key per projectId)
- *   - Persist task mutations via api/workspace.ts → localStorage
- *   - Optimistic update di KanbanBoard supaya drag terasa instant
+ * Drag-drop semantics handled in KanbanBoard. This page:
+ *   - Fetches project + tasks via TanStack Query
+ *   - Passes useMoveTask to KanbanBoard for optimistic drag-drop
+ *   - Handles create/update/delete via mutations with toast feedback
  *
- * a11y: breadcrumb, heading hierarchy, status feedback via toast.
+ * A11y: breadcrumb, heading hierarchy, status feedback via toast.
  */
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { EmptyState, Icon, toast } from '@ghanem/ui';
 import {
-  createTask,
-  deleteTask,
-  getProjectById,
-  getTasksByProject,
-  patchTaskStatus,
-  updateTask,
-} from '../../api/workspace';
-import { TASK_STATUS_META, type Task, type TaskStatus } from '../../mocks/workspace';
+  useProject,
+  useProjectTasks,
+  useCreateTask,
+  useUpdateTask,
+  useDeleteTask,
+  useMoveTask,
+} from '../../hooks/useWorkspace';
+import type { Task, TaskStatus } from '../../api/projects';
 import { KanbanBoard } from './KanbanBoard';
 import { TaskDetailDialog } from './TaskDetailDialog';
 
 export function ProjectKanbanPage(): JSX.Element {
   const { projectId = '' } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
-  const projectQuery = useQuery({
-    queryKey: ['workspace', 'project', projectId],
-    queryFn: () => getProjectById(projectId),
-    enabled: !!projectId,
-  });
+  const projectQuery = useProject(projectId);
+  const tasksQuery = useProjectTasks(projectId);
 
-  const tasksQuery = useQuery({
-    queryKey: ['workspace', 'tasks', projectId],
-    queryFn: () => getTasksByProject(projectId),
-    enabled: !!projectId,
-  });
+  const createTask = useCreateTask(projectId);
+  const updateTask = useUpdateTask(projectId);
+  const deleteTask = useDeleteTask(projectId);
+  const moveTask = useMoveTask(projectId);
 
   // Dialog state
   type DialogState =
@@ -55,59 +52,6 @@ export function ProjectKanbanPage(): JSX.Element {
   const [dialog, setDialog] = useState<DialogState>({ open: false });
 
   const closeDialog = useCallback(() => setDialog({ open: false }), []);
-
-  /* ── Mutations ─────────────────────────────────────────────────────── */
-
-  const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: TaskStatus }) =>
-      patchTaskStatus(id, status),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['workspace', 'tasks', projectId] });
-    },
-    onError: () => {
-      toast.error('Gagal memindahkan task');
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: createTask,
-    onSuccess: (task) => {
-      toast.success('Task ditambahkan', { description: task.title });
-      void queryClient.invalidateQueries({ queryKey: ['workspace', 'tasks', projectId] });
-      closeDialog();
-    },
-    onError: () => {
-      toast.error('Gagal membuat task');
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: updateTask,
-    onSuccess: (task) => {
-      toast.success('Task diperbarui', { description: task.title });
-      void queryClient.invalidateQueries({ queryKey: ['workspace', 'tasks', projectId] });
-      closeDialog();
-    },
-    onError: () => {
-      toast.error('Gagal menyimpan perubahan');
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteTask(id),
-    onSuccess: (res) => {
-      if (res.ok) {
-        toast.success('Task dihapus');
-        void queryClient.invalidateQueries({ queryKey: ['workspace', 'tasks', projectId] });
-        closeDialog();
-      } else {
-        toast.error('Task tidak ditemukan');
-      }
-    },
-    onError: () => {
-      toast.error('Gagal menghapus task');
-    },
-  });
 
   /* ── Handlers ──────────────────────────────────────────────────────── */
 
@@ -119,13 +63,11 @@ export function ProjectKanbanPage(): JSX.Element {
     setDialog({ open: true, mode: 'create', status });
   }, []);
 
-  const handleStatusChange = useCallback(
-    (taskId: string, nextStatus: TaskStatus) => {
-      statusMutation.mutate({ id: taskId, status: nextStatus });
-      const meta = TASK_STATUS_META[nextStatus];
-      toast.info(`Task dipindahkan ke ${meta.label}`);
+  const handleMove = useCallback(
+    (taskId: string, nextStatus: TaskStatus, order: number) => {
+      moveTask.mutate({ id: taskId, status: nextStatus, order });
     },
-    [statusMutation],
+    [moveTask],
   );
 
   const handleDialogSubmit = useCallback(
@@ -133,46 +75,68 @@ export function ProjectKanbanPage(): JSX.Element {
       title: string;
       description: string;
       status: TaskStatus;
-      assigneeId: string;
-      assigneeInitials: string;
-      labels: string[];
-      dueDate: string;
+      priority: import('../../api/projects').TaskPriority;
+      assigneeId?: string;
+      dueDate?: string;
     }) => {
       if (dialog.open && dialog.mode === 'create') {
-        await createMutation.mutateAsync({
-          projectId,
+        await createTask.mutateAsync({
           title: values.title,
-          description: values.description,
+          description: values.description || undefined,
           status: values.status,
-          assigneeId: values.assigneeId,
-          assigneeInitials: values.assigneeInitials,
-          labels: values.labels,
-          dueDate: values.dueDate,
+          priority: values.priority,
+          assigneeId: values.assigneeId || undefined,
+          dueDate: values.dueDate || undefined,
         });
+        closeDialog();
       } else if (dialog.open && dialog.mode === 'edit') {
-        await updateMutation.mutateAsync({
-          ...dialog.task,
-          title: values.title,
-          description: values.description,
-          status: values.status,
-          assigneeId: values.assigneeId,
-          assigneeInitials: values.assigneeInitials,
-          labels: values.labels,
-          dueDate: values.dueDate,
+        await updateTask.mutateAsync({
+          id: dialog.task.id,
+          input: {
+            title: values.title,
+            description: values.description || undefined,
+            status: values.status,
+            priority: values.priority,
+            assigneeId: values.assigneeId || undefined,
+            dueDate: values.dueDate || undefined,
+          },
         });
+        closeDialog();
       }
     },
-    [createMutation, dialog, projectId, updateMutation],
+    [createTask, updateTask, dialog, closeDialog],
+  );
+
+  const handleDeleteTask = useCallback(
+    (task: Task) => {
+      deleteTask.mutate(task.id);
+      closeDialog();
+    },
+    [deleteTask, closeDialog],
   );
 
   /* ── Render ────────────────────────────────────────────────────────── */
 
   const project = projectQuery.data;
-  const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
 
-  // Loading / error / not-found states.
+  // Flatten KanbanBoardData into a single array for KanbanBoard.
+  const tasks = useMemo((): Task[] => {
+    const board = tasksQuery.data;
+    if (!board) return [];
+    return [
+      ...(board.TODO ?? []),
+      ...(board.IN_PROGRESS ?? []),
+      ...(board.REVIEW ?? []),
+      ...(board.DONE ?? []),
+    ];
+  }, [tasksQuery.data]);
+
   if (projectQuery.isLoading || tasksQuery.isLoading) {
     return <KanbanSkeleton />;
+  }
+
+  if (projectQuery.isError) {
+    toast.error('Gagal memuat project');
   }
 
   if (!project) {
@@ -191,7 +155,7 @@ export function ProjectKanbanPage(): JSX.Element {
         <EmptyState
           variant="error"
           title="Project tidak ditemukan"
-          description={`Project dengan ID "${projectId}" tidak tersedia.`}
+          description={`Project dengan ID "${projectId}" tidak tersedia atau akses ditolak.`}
           action={{
             label: 'Kembali ke Workspace',
             onClick: () => navigate('/workspace'),
@@ -201,6 +165,12 @@ export function ProjectKanbanPage(): JSX.Element {
       </div>
     );
   }
+
+  // Detail endpoint exposes both `taskCount` (total) and `taskCounts` (per-status).
+  // Prefer `taskCount` from server; fall back to summing `taskCounts` if missing.
+  const taskCount =
+    project.taskCount ??
+    Object.values(project.taskCounts ?? {}).reduce((s, n) => s + (n ?? 0), 0);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -231,45 +201,30 @@ export function ProjectKanbanPage(): JSX.Element {
               <span
                 aria-hidden="true"
                 className="inline-block w-3 h-3 rounded-1"
-                style={{ background: project.color }}
+                style={{ background: project.color ?? '#2a5fb8' }}
               />
-              {project.status === 'archived' ? (
+              {project.status === 'ARCHIVED' ? (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded-1 bg-surface-3 text-ink-3 text-[10.5px] font-semibold uppercase tracking-cap">
                   Archived
                 </span>
               ) : null}
             </div>
             <h1 className="font-display font-bold text-h1 text-ink m-0">{project.name}</h1>
-            <p className="text-sm text-ink-3 mt-1 m-0 max-w-3xl">{project.description}</p>
-            <div
-              className="flex items-center gap-2 mt-3"
-              aria-label={`${project.members.length} anggota tim`}
-            >
-              {project.members.slice(0, 6).map((m, i) => (
-                <span
-                  key={m.id}
-                  aria-hidden="true"
-                  title={m.fullName}
-                  className={[
-                    'inline-flex items-center justify-center',
-                    'w-7 h-7 rounded-pill bg-green-50 text-green-700',
-                    'border-2 border-surface',
-                    'text-[10.5px] font-semibold',
-                    i > 0 ? '-ml-2' : '',
-                  ].join(' ')}
-                >
-                  {m.initials}
-                </span>
-              ))}
-              <span className="text-xs text-ink-4 ml-2">
-                {project.members.length} anggota
-              </span>
+            <p className="text-sm text-ink-3 mt-1 m-0 max-w-3xl">
+              {project.description ?? 'Tidak ada deskripsi.'}
+            </p>
+            <div className="flex items-center gap-3 mt-3 text-xs text-ink-4">
+              <span>{project.organization.name}</span>
+              <span aria-hidden>·</span>
+              <span>Owner: {project.owner.name}</span>
+              <span aria-hidden>·</span>
+              <span className="num font-semibold text-ink">{taskCount}</span> task
             </div>
           </div>
 
           <button
             type="button"
-            onClick={() => setDialog({ open: true, mode: 'create', status: 'todo' })}
+            onClick={() => setDialog({ open: true, mode: 'create', status: 'TODO' })}
             className={[
               'inline-flex items-center gap-1.5 h-10 px-4 rounded-2',
               'bg-green-500 text-white border border-green-600 font-semibold text-sm',
@@ -288,7 +243,7 @@ export function ProjectKanbanPage(): JSX.Element {
           tasks={tasks}
           onTaskOpen={handleTaskOpen}
           onAddTask={handleAddTask}
-          onTaskStatusChange={handleStatusChange}
+          onTaskMove={handleMove}
         />
       </div>
 
@@ -297,13 +252,10 @@ export function ProjectKanbanPage(): JSX.Element {
         onClose={closeDialog}
         mode={dialog.open ? dialog.mode : 'create'}
         task={dialog.open && dialog.mode === 'edit' ? dialog.task : undefined}
-        defaults={
-          dialog.open && dialog.mode === 'create'
-            ? { status: dialog.status, projectId }
-            : { projectId }
-        }
+        defaultStatus={dialog.open && dialog.mode === 'create' ? dialog.status : 'TODO'}
         onSubmit={handleDialogSubmit}
-        onDelete={(task) => deleteMutation.mutate(task.id)}
+        onDelete={handleDeleteTask}
+        isSubmitting={createTask.isPending || updateTask.isPending}
       />
     </div>
   );

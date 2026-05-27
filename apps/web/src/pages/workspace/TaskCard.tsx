@@ -1,14 +1,11 @@
 /**
  * TaskCard — kartu task di Kanban column.
  *
- * Sortable via dnd-kit `useSortable`. Drag-handle ada di seluruh card
- * (pakai `{...attributes} {...listeners}`). Klik (tanpa drag) → buka detail
- * dialog via `onOpen`.
+ * Sprint 9.5 Phase 2: Updated to use Task from api/projects.ts.
+ * Assignee is now { id, name } object (not just initials string).
+ * Priority badge added (LOW/MED/HIGH/URGENT).
  *
- * dnd-kit semantics:
- *   - `transform` + `transition` di-apply via inline style untuk smooth animation
- *   - `isDragging`: opacity rendah supaya origin-card terlihat sebagai placeholder
- *   - Keyboard: dnd-kit Sensor sudah handle (Space = grab, Arrow = move, Enter = drop)
+ * dnd-kit semantics preserved; sortable via useSortable.
  *
  * A11y:
  *   - `role="button"` (action card, bukan link)
@@ -18,15 +15,21 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Icon } from '@ghanem/ui';
-import { TASK_STATUS_META, type Task } from '../../mocks/workspace';
+import type { Task, TaskPriority } from '../../api/projects';
+import { TASK_STATUS_META } from './KanbanBoard';
 
 export interface TaskCardProps {
   task: Task;
-  /** Klik card (tanpa drag) → buka task detail dialog. */
   onOpen: (task: Task) => void;
-  /** Saat true, render visual minimal sebagai overlay (DragOverlay). */
   asOverlay?: boolean;
 }
+
+const PRIORITY_BADGE: Record<TaskPriority, { label: string; cls: string }> = {
+  LOW: { label: 'Low', cls: 'bg-surface-3 text-ink-4' },
+  MED: { label: 'Med', cls: 'bg-blue-50 text-blue-500' },
+  HIGH: { label: 'High', cls: 'bg-amber-100 text-amber-700' },
+  URGENT: { label: 'Urgent', cls: 'bg-red-100 text-red-600' },
+};
 
 function fmtDueShort(iso: string): string {
   try {
@@ -35,6 +38,14 @@ function fmtDueShort(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function assigneeInitials(name: string): string {
+  return name
+    .split(' ')
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
 }
 
 export function TaskCard({ task, onOpen, asOverlay = false }: TaskCardProps): JSX.Element {
@@ -51,6 +62,8 @@ export function TaskCard({ task, onOpen, asOverlay = false }: TaskCardProps): JS
   });
 
   const meta = TASK_STATUS_META[task.status];
+  const priorityBadge = PRIORITY_BADGE[task.priority];
+  const assigneeName = task.assignee?.name ?? null;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -61,11 +74,17 @@ export function TaskCard({ task, onOpen, asOverlay = false }: TaskCardProps): JS
     <article
       ref={asOverlay ? undefined : setNodeRef}
       style={asOverlay ? undefined : style}
-      aria-label={`Task: ${task.title}. Status: ${meta.label}. Assignee: ${task.assigneeInitials}.`}
+      aria-label={[
+        `Task: ${task.title}`,
+        `Status: ${meta.label}`,
+        assigneeName ? `Assignee: ${assigneeName}` : null,
+        `Prioritas: ${priorityBadge.label}`,
+      ]
+        .filter(Boolean)
+        .join('. ')}
       {...(asOverlay ? {} : attributes)}
       {...(asOverlay ? {} : listeners)}
       onClick={(e) => {
-        // Skip kalau lagi dragging (mouseup setelah pointer move).
         if (isDragging) {
           e.preventDefault();
           return;
@@ -73,10 +92,7 @@ export function TaskCard({ task, onOpen, asOverlay = false }: TaskCardProps): JS
         onOpen(task);
       }}
       onKeyDown={(e) => {
-        // Enter/Space saat focus & bukan drag → open dialog.
-        // (Drag-grab Space ditangani sensor sebelum sampai ke handler ini ketika fokus drag-aktif.)
         if ((e.key === 'Enter' || e.key === ' ') && !isDragging) {
-          // Hanya hijack jika belum di-prevent oleh dnd-kit sensor handler upstream.
           if (!e.defaultPrevented) {
             e.preventDefault();
             onOpen(task);
@@ -99,45 +115,46 @@ export function TaskCard({ task, onOpen, asOverlay = false }: TaskCardProps): JS
         <h4 className="text-sm font-semibold text-ink m-0 leading-snug line-clamp-2">
           {task.title}
         </h4>
-        <Icon
-          name="more"
-          size={11}
-          className="flex-none text-ink-5 mt-1"
-          aria-hidden
-        />
+        <Icon name="more" size={11} className="flex-none text-ink-5 mt-1" aria-hidden />
       </div>
 
-      {task.labels.length > 0 ? (
-        <div className="flex items-center gap-1 flex-wrap">
-          {task.labels.slice(0, 3).map((label) => (
-            <span
-              key={label}
-              className="inline-flex items-center px-1.5 py-0.5 rounded-1 bg-surface-3 text-ink-3 text-[10px] font-medium"
-            >
-              {label}
-            </span>
-          ))}
-          {task.labels.length > 3 ? (
-            <span className="text-[10px] text-ink-4">+{task.labels.length - 3}</span>
-          ) : null}
-        </div>
+      {task.description ? (
+        <p className="text-xs text-ink-4 m-0 line-clamp-1">{task.description}</p>
       ) : null}
 
+      <div className="flex items-center gap-1">
+        <span
+          className={[
+            'inline-flex items-center px-1.5 py-0.5 rounded-1 text-[10px] font-semibold',
+            priorityBadge.cls,
+          ].join(' ')}
+        >
+          {priorityBadge.label}
+        </span>
+      </div>
+
       <div className="flex items-center justify-between gap-2 mt-1">
-        <span
-          className="inline-flex items-center gap-1 text-[11px] text-ink-4"
-          title={`Jatuh tempo ${task.dueDate}`}
-        >
-          <Icon name="clock" size={10} aria-hidden />
-          <span className="num">{fmtDueShort(task.dueDate)}</span>
-        </span>
-        <span
-          aria-hidden="true"
-          title={task.assigneeInitials}
-          className="inline-flex items-center justify-center w-6 h-6 rounded-pill bg-green-50 text-green-700 text-[10px] font-bold"
-        >
-          {task.assigneeInitials}
-        </span>
+        {task.dueDate ? (
+          <span
+            className="inline-flex items-center gap-1 text-[11px] text-ink-4"
+            title={`Jatuh tempo ${task.dueDate}`}
+          >
+            <Icon name="clock" size={10} aria-hidden />
+            <span className="num">{fmtDueShort(task.dueDate)}</span>
+          </span>
+        ) : (
+          <span className="text-[11px] text-ink-5">—</span>
+        )}
+
+        {task.assignee ? (
+          <span
+            aria-hidden="true"
+            title={task.assignee.name}
+            className="inline-flex items-center justify-center w-6 h-6 rounded-pill bg-green-50 text-green-700 text-[10px] font-bold"
+          >
+            {assigneeInitials(task.assignee.name)}
+          </span>
+        ) : null}
       </div>
     </article>
   );

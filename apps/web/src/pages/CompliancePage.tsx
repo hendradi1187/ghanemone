@@ -1,28 +1,23 @@
 /**
- * CompliancePage — `/compliance` route (Phase 8.16).
+ * CompliancePage — `/compliance` route.
+ *
+ * Sprint 9.5 Phase 1: pending count sekarang dari real backend via
+ * usePendingCount() hook (GET /api/v1/datasets?status=PENDING_REVIEW&limit=1).
  *
  * Regulator-only workspace untuk approve/reject submission dataset dari KKKS,
  * plus audit log read-only view. Dua tab utama:
  *   1. Antrian Persetujuan — list pending datasets dengan bulk actions + review dialog
  *   2. Log Audit — read-only log seluruh approval action, filterable + exportable
  *
- * Role guard: hanya `regulator` yang boleh akses. Akun selain itu → EmptyState error.
+ * Role guard: hanya `regulator` atau `admin` yang boleh akses.
  *
  * URL state: `?tab=queue|audit` via useSearchParams (shareable, history-friendly).
- *
- * Phase 9 mapping (lihat apps/web/src/mocks/compliance.ts header):
- *   - GET  /v1/compliance/queue                      → ApprovalQueue
- *   - GET  /v1/compliance/audit-log                  → AuditLogTable
- *   - POST /v1/compliance/datasets/:id/approve       → ReviewDialog + BulkActionDialog
- *   - POST /v1/compliance/datasets/:id/reject        → ReviewDialog + BulkActionDialog
- *   - POST /v1/compliance/datasets/:id/request-changes → ReviewDialog
  */
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { EmptyState, Tabs } from '@ghanem/ui';
 import { useAuth } from '../hooks/use-auth';
-import { getApprovalQueue } from '../api/compliance';
+import { usePendingCount } from '../hooks/useCompliance';
 import { ApprovalQueue } from './compliance/ApprovalQueue';
 import { AuditLogTable } from './compliance/AuditLogTable';
 
@@ -55,18 +50,14 @@ export function CompliancePage(): JSX.Element {
     [setSearchParams],
   );
 
-  // Pending count untuk header — kita pre-fetch supaya counter di header + tab badge sync.
-  // Stale-time pendek karena queue suka berubah saat user act dari ReviewDialog.
-  const queueQuery = useQuery({
-    queryKey: ['compliance', 'queue'],
-    queryFn: getApprovalQueue,
-    staleTime: 10_000,
-    // Hanya enabled kalau user adalah regulator — hindari fetch sia-sia saat role guard fail.
-    enabled: user?.role === 'regulator',
-  });
+  const isAuthorized = user?.role === 'regulator' || user?.role === 'admin';
+
+  // Pending count for header badge — lightweight query (limit=1, total only).
+  const pendingCountQuery = usePendingCount(isAuthorized);
+  const pendingCount = pendingCountQuery.data ?? 0;
 
   // ── Role guard ────────────────────────────────────────────────────────
-  if (user?.role !== 'regulator') {
+  if (!isAuthorized) {
     return (
       <div className="px-6 py-10 max-w-2xl mx-auto">
         <EmptyState
@@ -75,15 +66,14 @@ export function CompliancePage(): JSX.Element {
           description={
             <>
               Halaman <b>Compliance & Approval</b> hanya tersedia untuk Regulator
-              SKK Migas. Akun Anda terdaftar sebagai <i>{user?.role ?? 'tamu'}</i>.
+              SKK Migas atau Administrator. Akun Anda terdaftar sebagai{' '}
+              <i>{user?.role ?? 'tamu'}</i>.
             </>
           }
         />
       </div>
     );
   }
-
-  const pendingCount = queueQuery.data?.length ?? 0;
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto">

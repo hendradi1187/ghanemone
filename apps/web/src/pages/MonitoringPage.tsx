@@ -1,27 +1,26 @@
 /**
- * MonitoringPage — `/monitoring` route (Phase 8.14).
+ * MonitoringPage — `/monitoring` route.
  *
- * Live ops view dengan 4 tabs: Pipelines, Alerts, Jobs Log, System Health.
- * URL state `?tab=…&status=…` untuk shareability.
+ * Sprint 9.5 Phase 2: Summary cards, pipeline table, and alerts panel now
+ * connected to real backend endpoints via useMonitoringSummary, usePipelineRuns,
+ * useAlerts, useAcknowledgeAlert from hooks/useMonitoring.ts.
  *
- * Real-time strategy:
- *   - Initial fetch via TanStack Query (`getPipelines`/`getAlerts`)
- *   - Subscribe ke `subscribeToPipelineUpdates` (mock setInterval 3-5s)
- *   - Merge updates ke cache via `queryClient.setQueryData`
- *   - Track `lastUpdate` Date untuk LiveIndicator
- *   - SR announcement throttled — hanya major status transitions
- *     (running→completed/failed), bukan setiap progress tick
+ * Jobs Log + System Health tabs remain on mock data (backend doesn't expose
+ * those endpoints yet — deferred to Sprint 9.6).
  *
- * Role guard: regulator + analyst boleh akses; KKKS operator dapat 403.
+ * Live updates:
+ *   - Summary + pipelines refetchInterval: 30s
+ *   - Alerts have optimistic ack with rollback on error
+ *
+ * Role guard: regulator + analyst + admin only.
  *
  * A11y:
  *   - Heading hierarchy h1 > h2 > h3
- *   - Live region `<div role="status" aria-live="polite">` di pojok
- *   - Status badge punya text label + warna (color-blind safe via icon)
+ *   - SR live region for status announcements
+ *   - Status badge has text label + color (color-blind safe)
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BarChartCard,
   Button,
@@ -34,37 +33,38 @@ import {
   Tabs,
   toast,
 } from '@ghanem/ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  acknowledgeAlert,
-  getAlertsWithAcks,
-  getPipelines,
   getRecentJobs,
   getSystemHealth,
-  subscribeToPipelineUpdates,
-  type PipelineUpdate,
 } from '../api/monitoring';
+import type { JobLogEntry, SystemHealth } from '../mocks/monitoring';
+import {
+  useAcknowledgeAlert,
+  useAlerts,
+  useMonitoringSummary,
+  usePipelineRuns,
+} from '../hooks/useMonitoring';
 import type {
   Alert,
-  JobLogEntry,
-  Pipeline,
-  PipelineStatus,
-  SystemHealth,
-} from '../mocks/monitoring';
+  PipelineRun,
+  PipelineRunStatus,
+} from '../api/monitoring-api';
 import { useAuth } from '../hooks/use-auth';
-import { PipelineRow } from './monitoring/PipelineRow';
-import { AlertCard } from './monitoring/AlertCard';
 import { LiveIndicator } from './monitoring/LiveIndicator';
+
+/* ─── Tab + filter types ─────────────────────────────────────────────────── */
 
 type MonTab = 'pipelines' | 'alerts' | 'jobs' | 'health';
 const VALID_TABS: readonly MonTab[] = ['pipelines', 'alerts', 'jobs', 'health'];
 
-const STATUS_FILTERS: readonly { value: PipelineStatus | 'all'; label: string }[] = [
+const STATUS_FILTERS: readonly { value: PipelineRunStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Semua' },
-  { value: 'running', label: 'Running' },
-  { value: 'queued', label: 'Queued' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'RUNNING', label: 'Running' },
+  { value: 'QUEUED', label: 'Queued' },
+  { value: 'SUCCESS', label: 'Success' },
+  { value: 'FAILED', label: 'Failed' },
+  { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
 function parseTab(raw: string | null): MonTab {
@@ -72,27 +72,28 @@ function parseTab(raw: string | null): MonTab {
   return 'pipelines';
 }
 
-function parseStatusFilter(raw: string | null): PipelineStatus | 'all' {
-  if (!raw) return 'all';
-  if (raw === 'all') return 'all';
-  if (
-    raw === 'running' ||
-    raw === 'queued' ||
-    raw === 'completed' ||
-    raw === 'failed' ||
-    raw === 'cancelled'
-  ) {
-    return raw;
-  }
+function parseStatusFilter(raw: string | null): PipelineRunStatus | 'all' {
+  const valid: readonly string[] = ['RUNNING', 'QUEUED', 'SUCCESS', 'FAILED', 'CANCELLED'];
+  if (raw && valid.includes(raw)) return raw as PipelineRunStatus;
   return 'all';
 }
+
+function formatDurationMs(ms: number | null): string {
+  if (!ms || ms <= 0) return '—';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+/* ─── Page component ─────────────────────────────────────────────────────── */
 
 export function MonitoringPage(): JSX.Element {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
-  // ── URL state ────────────────────────────────────────────────────────
   const tab = parseTab(searchParams.get('tab'));
   const statusFilter = parseStatusFilter(searchParams.get('status'));
 
@@ -112,7 +113,7 @@ export function MonitoringPage(): JSX.Element {
   );
 
   const setStatusFilter = useCallback(
-    (next: PipelineStatus | 'all') => {
+    (next: PipelineRunStatus | 'all') => {
       setSearchParams(
         (prev) => {
           const params = new URLSearchParams(prev);
@@ -126,131 +127,57 @@ export function MonitoringPage(): JSX.Element {
     [setSearchParams],
   );
 
-  // ── Queries ─────────────────────────────────────────────────────────
-  const pipelinesQuery = useQuery({
-    queryKey: ['monitoring', 'pipelines'],
-    queryFn: getPipelines,
-    staleTime: 5_000,
+  /* ── Real API queries ───────────────────────────────────────────────── */
+
+  const summaryQuery = useMonitoringSummary();
+
+  const pipelinesQuery = usePipelineRuns({
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    limit: 50,
   });
-  const alertsQuery = useQuery({
-    queryKey: ['monitoring', 'alerts'],
-    queryFn: getAlertsWithAcks,
-    staleTime: 10_000,
-  });
+
+  const alertsQuery = useAlerts({ acknowledged: false });
+  const acknowledgeAlert = useAcknowledgeAlert();
+
+  /* ── Mock queries for tabs not yet on real API ─────────────────────── */
+
   const healthQuery = useQuery({
     queryKey: ['monitoring', 'health'],
     queryFn: getSystemHealth,
     staleTime: 15_000,
   });
+
   const jobsQuery = useQuery({
     queryKey: ['monitoring', 'jobs'],
     queryFn: () => getRecentJobs(50),
     staleTime: 15_000,
   });
 
-  // ── Live subscription ───────────────────────────────────────────────
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
-  // Throttle SR announcement — minimal 8 detik antar announcement.
-  const lastAnnouncementRef = useRef<number>(0);
+  /* ── Handlers ───────────────────────────────────────────────────────── */
 
-  useEffect(() => {
-    const unsubscribe = subscribeToPipelineUpdates((updates) => {
-      // Merge ke cache.
-      queryClient.setQueryData<Pipeline[] | undefined>(
-        ['monitoring', 'pipelines'],
-        (prev) => {
-          if (!prev) return prev;
-          const map = new Map<string, PipelineUpdate>();
-          for (const u of updates) map.set(u.id, u);
-          return prev.map((p) => {
-            const u = map.get(p.id);
-            if (!u) return p;
-            return {
-              ...p,
-              ...(u.status !== undefined ? { status: u.status } : {}),
-              ...(u.progress !== undefined ? { progress: u.progress } : {}),
-              ...(u.throughput !== undefined ? { throughput: u.throughput } : {}),
-              ...(u.stepCurrent !== undefined ? { stepCurrent: u.stepCurrent } : {}),
-            };
-          });
-        },
-      );
-      setLastUpdate(new Date());
-      // SR announcement — hanya untuk status transitions besar.
-      const transitions = updates.filter(
-        (u) => u.status === 'completed' || u.status === 'failed',
-      );
-      if (transitions.length > 0) {
-        const now = Date.now();
-        if (now - lastAnnouncementRef.current >= 8_000) {
-          lastAnnouncementRef.current = now;
-          const completed = transitions.filter((u) => u.status === 'completed').length;
-          const failed = transitions.filter((u) => u.status === 'failed').length;
-          const parts: string[] = [];
-          if (completed > 0) parts.push(`${completed} pipeline selesai`);
-          if (failed > 0) parts.push(`${failed} pipeline gagal`);
-          setLiveAnnouncement(parts.join(', '));
-        }
-      }
-    });
-    return () => unsubscribe();
-    // queryClient stable; tidak dimasukkan supaya unsubscribe tidak repeat per render.
-  }, [queryClient]);
-
-  // ── Derived: filter pipelines ───────────────────────────────────────
-  const filteredPipelines = useMemo(() => {
-    const list = pipelinesQuery.data ?? [];
-    if (statusFilter === 'all') return list;
-    return list.filter((p) => p.status === statusFilter);
-  }, [pipelinesQuery.data, statusFilter]);
-
-  const pipelineCounts = useMemo(() => {
-    const list = pipelinesQuery.data ?? [];
-    const counts: Record<PipelineStatus | 'all', number> = {
-      all: list.length,
-      queued: 0,
-      running: 0,
-      completed: 0,
-      failed: 0,
-      cancelled: 0,
-    };
-    for (const p of list) counts[p.status] += 1;
-    return counts;
-  }, [pipelinesQuery.data]);
-
-  // ── Alerts handlers ────────────────────────────────────────────────
   const handleAck = useCallback(
-    async (id: string) => {
-      // Optimistic update
-      queryClient.setQueryData<Alert[] | undefined>(['monitoring', 'alerts'], (prev) =>
-        prev ? prev.map((a) => (a.id === id ? { ...a, acknowledged: true } : a)) : prev,
-      );
-      try {
-        await acknowledgeAlert(id);
-        toast.success('Alert di-acknowledge');
-      } catch {
-        toast.error('Gagal acknowledge alert');
-        void queryClient.invalidateQueries({ queryKey: ['monitoring', 'alerts'] });
-      }
+    (id: string) => {
+      acknowledgeAlert.mutate(id);
     },
-    [queryClient],
+    [acknowledgeAlert],
   );
 
   const handleOpenAlert = useCallback((alert: Alert) => {
-    toast.info(alert.title, {
-      description: alert.message,
-    });
+    toast.info(alert.title, { description: alert.message });
   }, []);
 
   const handleRefresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['monitoring'] });
-    setLastUpdate(new Date());
     toast.success('Data dimuat ulang');
   }, [queryClient]);
 
-  // ── Role guard — rendered AFTER all hooks ────────────────────────────
-  const allowed = user?.role === 'regulator' || user?.role === 'analyst' || user?.role === 'admin';
+  /* ── Role guard — after all hooks ───────────────────────────────────── */
+
+  const allowed =
+    user?.role === 'regulator' ||
+    user?.role === 'analyst' ||
+    user?.role === 'admin';
+
   if (!allowed) {
     return (
       <div className="px-6 py-10 max-w-2xl mx-auto">
@@ -268,10 +195,18 @@ export function MonitoringPage(): JSX.Element {
     );
   }
 
-  // ── Health KPI ─────────────────────────────────────────────────────
+  /* ── Derived data ───────────────────────────────────────────────────── */
+
+  const summary = summaryQuery.data;
   const health = healthQuery.data;
-  const activeJobs = pipelineCounts.running + pipelineCounts.queued;
-  const failedCount = pipelineCounts.failed;
+  const pipelines = pipelinesQuery.data?.items ?? [];
+  const pipelineTotal = pipelinesQuery.data?.total ?? 0;
+  const alerts = alertsQuery.data?.items ?? [];
+  const unackedCount = alertsQuery.data?.items.filter((a) => !a.acknowledged).length ?? 0;
+
+  // Pipeline status counts from summary (more accurate than client-side count).
+  const activeJobs = (summary?.runs.running ?? 0) + (summary?.runs.queued ?? 0);
+  const failedCount = summary?.runs.failed ?? 0;
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto">
@@ -283,12 +218,18 @@ export function MonitoringPage(): JSX.Element {
             </p>
             <h1 className="font-display font-bold text-h1 text-ink m-0">Live Operations</h1>
             <p className="text-sm text-ink-4 mt-1 max-w-2xl">
-              Pipeline status, alerts, dan health metrics secara real-time. Update bergulir
-              otomatis setiap 3-5 detik.
+              Pipeline status, alerts, dan health metrics secara real-time.
+              Summary diperbarui setiap 30 detik.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <LiveIndicator lastUpdate={lastUpdate} />
+            <LiveIndicator
+              lastUpdate={
+                summaryQuery.dataUpdatedAt && summaryQuery.dataUpdatedAt > 0
+                  ? new Date(summaryQuery.dataUpdatedAt)
+                  : null
+              }
+            />
             <Button
               variant="secondary"
               size="sm"
@@ -301,56 +242,97 @@ export function MonitoringPage(): JSX.Element {
           </div>
         </div>
 
-        {/* KPI strip */}
-        <div className="grid gap-3 mt-4 grid-cols-2 md:grid-cols-4">
-          <StatCard
-            label="Uptime"
-            value={health ? `${health.uptimePct.toFixed(1)}` : '—'}
-            unit="%"
-            icon="shield"
-            tone="green"
-          />
-          <StatCard
-            label="Latensi rata-rata"
-            value={health ? health.avgLatencyMs : '—'}
-            unit="ms"
-            icon="bolt"
-            tone="blue"
-          />
-          <StatCard
-            label="Throughput"
-            value={health ? `${(health.throughputRpm / 1000).toFixed(1)}k` : '—'}
-            unit="/min"
-            icon="activity"
-            tone="purple"
-          />
-          <StatCard
-            label="Error rate"
-            value={health ? `${health.errorRatePct.toFixed(2)}` : '—'}
-            unit="%"
-            icon="warn"
-            tone={health && health.errorRatePct > 1 ? 'amber' : 'neutral'}
-          />
-        </div>
-      </header>
+        {/* Summary KPI strip — 5 pipeline run stats + 4 alert severity counts */}
+        {summaryQuery.isLoading ? (
+          <div className="grid gap-3 mt-4 grid-cols-2 md:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className="bg-surface border border-line rounded-3 p-4 h-20 animate-pulse"
+                aria-busy="true"
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-3 mt-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+            <StatCard
+              label="Running"
+              value={summary?.runs.running ?? 0}
+              icon="activity"
+              tone="blue"
+            />
+            <StatCard
+              label="Queued"
+              value={summary?.runs.queued ?? 0}
+              icon="clock"
+              tone="purple"
+            />
+            <StatCard
+              label="Success"
+              value={summary?.runs.success ?? 0}
+              icon="check"
+              tone="green"
+            />
+            <StatCard
+              label="Failed"
+              value={summary?.runs.failed ?? 0}
+              icon="warn"
+              tone="amber"
+            />
+            <StatCard
+              label="Alert Aktif"
+              value={
+                (summary?.alerts.critical ?? 0) +
+                (summary?.alerts.error ?? 0) +
+                (summary?.alerts.warning ?? 0)
+              }
+              icon="bell"
+              tone={
+                (summary?.alerts.critical ?? 0) > 0
+                  ? 'amber'
+                  : 'neutral'
+              }
+            />
+          </div>
+        )}
 
-      {/* SR live region — visually hidden, used untuk announcement */}
-      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {liveAnnouncement}
-      </div>
+        {/* Alert severity breakdown */}
+        {summary && (
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
+            <SeverityPill
+              label="Critical"
+              count={summary.alerts.critical}
+              cls="bg-red-100 text-red-600"
+            />
+            <SeverityPill
+              label="Error"
+              count={summary.alerts.error}
+              cls="bg-orange-100 text-orange-600"
+            />
+            <SeverityPill
+              label="Warning"
+              count={summary.alerts.warning}
+              cls="bg-amber-100 text-amber-700"
+            />
+            <SeverityPill
+              label="Info"
+              count={summary.alerts.info}
+              cls="bg-blue-50 text-blue-600"
+            />
+          </div>
+        )}
+      </header>
 
       <div className="px-6 py-5 flex-1">
         <Tabs.Root value={tab} onValueChange={setTab}>
           <Tabs.List aria-label="Monitoring sections">
             <Tabs.Trigger value="pipelines">
               Pipelines{' '}
-              <span className="text-ink-4 font-normal">({pipelineCounts.all})</span>
+              <span className="text-ink-4 font-normal">({pipelineTotal})</span>
             </Tabs.Trigger>
             <Tabs.Trigger value="alerts">
               Alerts{' '}
-              <span className="text-ink-4 font-normal">
-                ({alertsQuery.data?.filter((a) => !a.acknowledged).length ?? 0})
-              </span>
+              <span className="text-ink-4 font-normal">({unackedCount})</span>
             </Tabs.Trigger>
             <Tabs.Trigger value="jobs">Jobs Log</Tabs.Trigger>
             <Tabs.Trigger value="health">System Health</Tabs.Trigger>
@@ -358,8 +340,7 @@ export function MonitoringPage(): JSX.Element {
 
           <Tabs.Content value="pipelines" className="pt-5">
             <PipelinesTab
-              pipelines={filteredPipelines}
-              counts={pipelineCounts}
+              pipelines={pipelines}
               statusFilter={statusFilter}
               onStatusFilter={setStatusFilter}
               activeJobs={activeJobs}
@@ -370,10 +351,11 @@ export function MonitoringPage(): JSX.Element {
 
           <Tabs.Content value="alerts" className="pt-5">
             <AlertsTab
-              alerts={alertsQuery.data ?? []}
+              alerts={alerts}
               onAck={handleAck}
               onOpen={handleOpenAlert}
               loading={alertsQuery.isLoading}
+              ackPending={acknowledgeAlert.isPending}
             />
           </Tabs.Content>
 
@@ -390,13 +372,63 @@ export function MonitoringPage(): JSX.Element {
   );
 }
 
-/* ─── Pipelines tab ────────────────────────────────────────────────────── */
+/* ─── SeverityPill ───────────────────────────────────────────────────────── */
+
+function SeverityPill({
+  label,
+  count,
+  cls,
+}: {
+  label: string;
+  count: number;
+  cls: string;
+}): JSX.Element | null {
+  if (count === 0) return null;
+  return (
+    <span
+      className={[
+        'inline-flex items-center gap-1 px-2 py-0.5 rounded-pill text-[11px] font-semibold',
+        cls,
+      ].join(' ')}
+    >
+      {label}: <span className="num">{count}</span>
+    </span>
+  );
+}
+
+/* ─── Pipelines tab ──────────────────────────────────────────────────────── */
+
+const STATUS_CHIP_MAP: Record<
+  PipelineRunStatus,
+  'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+> = {
+  QUEUED: 'queued',
+  RUNNING: 'running',
+  SUCCESS: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+};
+
+const STATUS_BAR_CLS: Record<PipelineRunStatus, string> = {
+  QUEUED: 'bg-ink-5',
+  RUNNING: 'bg-blue-500',
+  SUCCESS: 'bg-green-500',
+  FAILED: 'bg-red-500',
+  CANCELLED: 'bg-ink-5',
+};
+
+const STATUS_DISPLAY: Record<PipelineRunStatus, string> = {
+  QUEUED: 'Queued',
+  RUNNING: 'Running',
+  SUCCESS: 'Success',
+  FAILED: 'Failed',
+  CANCELLED: 'Cancelled',
+};
 
 interface PipelinesTabProps {
-  pipelines: Pipeline[];
-  counts: Record<PipelineStatus | 'all', number>;
-  statusFilter: PipelineStatus | 'all';
-  onStatusFilter: (next: PipelineStatus | 'all') => void;
+  pipelines: PipelineRun[];
+  statusFilter: PipelineRunStatus | 'all';
+  onStatusFilter: (next: PipelineRunStatus | 'all') => void;
   activeJobs: number;
   failedCount: number;
   loading: boolean;
@@ -404,7 +436,6 @@ interface PipelinesTabProps {
 
 function PipelinesTab({
   pipelines,
-  counts,
   statusFilter,
   onStatusFilter,
   activeJobs,
@@ -421,7 +452,6 @@ function PipelinesTab({
         <div className="flex items-center gap-1 flex-wrap">
           {STATUS_FILTERS.map((f) => {
             const isActive = statusFilter === f.value;
-            const count = counts[f.value];
             return (
               <button
                 key={f.value}
@@ -438,7 +468,6 @@ function PipelinesTab({
                 ].join(' ')}
               >
                 {f.label}
-                <span className="num opacity-70">{count}</span>
               </button>
             );
           })}
@@ -450,19 +479,19 @@ function PipelinesTab({
           <thead className="bg-surface-2 text-left">
             <tr className="border-b border-line">
               <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3">
-                Job
+                Job / Tipe
               </th>
               <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3">
                 Status
               </th>
               <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3">
-                Step
+                Dataset
               </th>
               <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3">
                 Durasi
               </th>
               <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3">
-                Progress / Throughput
+                Records
               </th>
             </tr>
           </thead>
@@ -485,7 +514,9 @@ function PipelinesTab({
                 </td>
               </tr>
             ) : (
-              pipelines.map((p) => <PipelineRow key={p.id} pipeline={p} />)
+              pipelines.map((p) => (
+                <PipelineRunRow key={p.id} run={p} />
+              ))
             )}
           </tbody>
         </table>
@@ -494,16 +525,89 @@ function PipelinesTab({
   );
 }
 
-/* ─── Alerts tab ───────────────────────────────────────────────────────── */
+/* ─── PipelineRunRow ─────────────────────────────────────────────────────── */
+
+function PipelineRunRow({ run }: { run: PipelineRun }): JSX.Element {
+  const chipStatus = STATUS_CHIP_MAP[run.status];
+  const barCls = STATUS_BAR_CLS[run.status];
+  const statusLabel = STATUS_DISPLAY[run.status];
+  const isRunning = run.status === 'RUNNING';
+
+  // Compute progress: 0-100 based on status.
+  const progress =
+    run.status === 'SUCCESS'
+      ? 100
+      : run.status === 'RUNNING' || run.status === 'QUEUED'
+      ? 50  // indeterminate — backend doesn't expose step progress yet
+      : 0;
+
+  return (
+    <tr className="border-b border-line last:border-b-0 hover:bg-surface-2">
+      <td className="px-3 py-3 align-top">
+        <div className="font-semibold text-sm text-ink leading-snug">{run.name}</div>
+        <div className="text-[11px] text-ink-4 mt-0.5 uppercase tracking-cap">{run.type}</div>
+      </td>
+      <td className="px-3 py-3 align-top">
+        <StatusChip status={chipStatus}>{statusLabel}</StatusChip>
+      </td>
+      <td className="px-3 py-3 align-top max-w-[180px]">
+        {run.dataset ? (
+          <span className="text-xs text-ink-2 line-clamp-2">{run.dataset.title}</span>
+        ) : (
+          <span className="text-xs text-ink-5">—</span>
+        )}
+      </td>
+      <td className="px-3 py-3 align-top">
+        <span className="num font-mono text-xs text-ink-3">
+          {formatDurationMs(run.durationMs)}
+        </span>
+      </td>
+      <td className="px-3 py-3 align-top w-44">
+        <div className="flex items-center gap-2">
+          <div
+            className="flex-1 h-1.5 bg-surface-3 rounded-pill overflow-hidden"
+            role="progressbar"
+            aria-valuenow={progress}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Progress ${run.name}`}
+          >
+            <div
+              className={['h-full transition-all duration-500 ease-out', barCls].join(' ')}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+        {run.recordCount !== null ? (
+          <div className="text-[10.5px] text-ink-4 mt-1">
+            <span className="num font-mono">{run.recordCount.toLocaleString('id-ID')}</span> records
+          </div>
+        ) : null}
+        {run.status === 'FAILED' && run.errorMessage ? (
+          <div className="text-[10.5px] text-red-500 mt-1 flex items-start gap-1">
+            <Icon name="warn" size={10} aria-hidden />
+            <span className="line-clamp-2">{run.errorMessage}</span>
+          </div>
+        ) : null}
+        {isRunning ? (
+          <div className="text-[10.5px] text-blue-500 mt-1">Running…</div>
+        ) : null}
+      </td>
+    </tr>
+  );
+}
+
+/* ─── Alerts tab ─────────────────────────────────────────────────────────── */
 
 interface AlertsTabProps {
   alerts: Alert[];
   onAck: (id: string) => void;
   onOpen: (alert: Alert) => void;
   loading: boolean;
+  ackPending: boolean;
 }
 
-function AlertsTab({ alerts, onAck, onOpen, loading }: AlertsTabProps): JSX.Element {
+function AlertsTab({ alerts, onAck, onOpen, loading, ackPending }: AlertsTabProps): JSX.Element {
   const [showAcked, setShowAcked] = useState(false);
   const visible = useMemo(
     () => (showAcked ? alerts : alerts.filter((a) => !a.acknowledged)),
@@ -522,8 +626,7 @@ function AlertsTab({ alerts, onAck, onOpen, loading }: AlertsTabProps): JSX.Elem
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <div className="text-sm text-ink-3">
-          <span className="num font-semibold text-ink">{visible.length}</span> alert
-          ditampilkan
+          <span className="num font-semibold text-ink">{visible.length}</span> alert ditampilkan
         </div>
         <label className="inline-flex items-center gap-2 text-sm text-ink-3 cursor-pointer">
           <input
@@ -546,11 +649,12 @@ function AlertsTab({ alerts, onAck, onOpen, loading }: AlertsTabProps): JSX.Elem
       ) : (
         <div className="grid gap-2 grid-cols-1 lg:grid-cols-2">
           {visible.map((alert) => (
-            <AlertCard
+            <RealAlertCard
               key={alert.id}
               alert={alert}
-              onAcknowledge={onAck}
+              onAck={onAck}
               onOpen={onOpen}
+              ackPending={ackPending}
             />
           ))}
         </div>
@@ -559,7 +663,112 @@ function AlertsTab({ alerts, onAck, onOpen, loading }: AlertsTabProps): JSX.Elem
   );
 }
 
-/* ─── Jobs log tab ─────────────────────────────────────────────────────── */
+/* ─── RealAlertCard (for new Alert shape) ────────────────────────────────── */
+
+type AlertSeverity = Alert['severity'];
+
+const ALERT_SEVERITY_CONFIG: Record<
+  AlertSeverity,
+  { label: string; icon: import('@ghanem/ui').IconName; bg: string; fg: string; border: string }
+> = {
+  CRITICAL: { label: 'Kritis', icon: 'warn', bg: 'bg-red-100', fg: 'text-red-500', border: 'border-red-100' },
+  ERROR: { label: 'Error', icon: 'warn', bg: 'bg-orange-100', fg: 'text-orange-600', border: 'border-orange-100' },
+  WARNING: { label: 'Peringatan', icon: 'bell', bg: 'bg-amber-100', fg: 'text-amber-700', border: 'border-amber-100' },
+  INFO: { label: 'Info', icon: 'check', bg: 'bg-blue-50', fg: 'text-blue-600', border: 'border-blue-100' },
+};
+
+function formatTimeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return `${Math.max(1, Math.floor(ms / 1000))} dtk`;
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} mnt`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} jam`;
+  return `${Math.floor(ms / 86_400_000)} hari`;
+}
+
+function RealAlertCard({
+  alert,
+  onAck,
+  onOpen,
+  ackPending,
+}: {
+  alert: Alert;
+  onAck: (id: string) => void;
+  onOpen: (alert: Alert) => void;
+  ackPending: boolean;
+}): JSX.Element {
+  const cfg = ALERT_SEVERITY_CONFIG[alert.severity];
+
+  return (
+    <article
+      className={[
+        'flex items-start gap-3 p-3 bg-surface border rounded-3',
+        alert.acknowledged ? 'border-line opacity-70' : cfg.border,
+        'transition-opacity duration-hf',
+      ].join(' ')}
+    >
+      <span
+        aria-hidden="true"
+        className={[
+          'inline-flex items-center justify-center flex-none w-9 h-9 rounded-2',
+          cfg.bg,
+          cfg.fg,
+        ].join(' ')}
+      >
+        <Icon name={cfg.icon} size={16} aria-hidden />
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 className="font-semibold text-sm text-ink m-0 leading-snug">
+            <span className="sr-only">{cfg.label}: </span>
+            {alert.title}
+          </h3>
+          <span className="num text-[11px] text-ink-4 flex-none">
+            {formatTimeAgo(alert.createdAt)}
+          </span>
+        </div>
+        <p className="text-xs text-ink-3 mt-0.5 m-0 line-clamp-2">{alert.message}</p>
+        <div className="flex items-center justify-between gap-2 mt-2">
+          <span className="text-[10.5px] text-ink-4 font-medium">{alert.source}</span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onOpen(alert)}
+              className={[
+                'inline-flex items-center gap-1 px-2 py-0.5 rounded-1 text-[11px] font-semibold',
+                'text-blue-600 hover:bg-blue-50',
+                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500',
+              ].join(' ')}
+            >
+              Detail <Icon name="arrowR" size={10} aria-hidden />
+            </button>
+            {!alert.acknowledged ? (
+              <button
+                type="button"
+                onClick={() => onAck(alert.id)}
+                disabled={ackPending}
+                aria-label={`Acknowledge ${alert.title}`}
+                className={[
+                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-1 text-[11px] font-semibold',
+                  'text-ink-2 border border-line bg-surface hover:bg-surface-2',
+                  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500',
+                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                ].join(' ')}
+              >
+                <Icon name="check" size={10} aria-hidden /> Ack
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10.5px] text-ink-4">
+                <Icon name="check" size={10} aria-hidden /> Acked
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/* ─── Jobs log tab (mock) ────────────────────────────────────────────────── */
 
 interface JobsLogTabProps {
   jobs: JobLogEntry[];
@@ -579,6 +788,13 @@ function JobsLogTab({ jobs, loading }: JobsLogTabProps): JSX.Element {
         Memuat jobs log…
       </div>
     );
+  }
+
+  function fmtSec(sec: number): string {
+    if (sec < 60) return `${sec}s`;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
   }
 
   return (
@@ -603,23 +819,14 @@ function JobsLogTab({ jobs, loading }: JobsLogTabProps): JSX.Element {
           </button>
         ))}
       </div>
-
       <div className="border border-line rounded-3 bg-surface overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-surface-2 text-left">
             <tr className="border-b border-line">
-              <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3 w-24">
-                Status
-              </th>
-              <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3">
-                Pipeline
-              </th>
-              <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3 w-24">
-                Durasi
-              </th>
-              <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3 w-32">
-                Selesai
-              </th>
+              <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3 w-24">Status</th>
+              <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3">Pipeline</th>
+              <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3 w-24">Durasi</th>
+              <th scope="col" className="px-3 py-2 text-xs uppercase tracking-cap font-semibold text-ink-3 w-32">Selesai</th>
             </tr>
           </thead>
           <tbody>
@@ -634,14 +841,9 @@ function JobsLogTab({ jobs, loading }: JobsLogTabProps): JSX.Element {
                   <div className="font-semibold text-sm text-ink">{j.pipelineName}</div>
                   <div className="text-[11px] text-ink-4 mt-0.5">{j.message}</div>
                 </td>
-                <td className="px-3 py-2 num font-mono text-xs text-ink-3">
-                  {formatDuration(j.durationSec)}
-                </td>
+                <td className="px-3 py-2 num font-mono text-xs text-ink-3">{fmtSec(j.durationSec)}</td>
                 <td className="px-3 py-2 text-xs text-ink-3">
-                  {new Date(j.finishedAt).toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {new Date(j.finishedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                 </td>
               </tr>
             ))}
@@ -652,14 +854,7 @@ function JobsLogTab({ jobs, loading }: JobsLogTabProps): JSX.Element {
   );
 }
 
-function formatDuration(sec: number): string {
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
-}
-
-/* ─── Health tab ───────────────────────────────────────────────────────── */
+/* ─── Health tab (mock) ──────────────────────────────────────────────────── */
 
 interface HealthTabProps {
   health: SystemHealth | undefined;

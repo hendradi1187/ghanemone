@@ -1,18 +1,20 @@
 /**
  * ApprovalQueue — list pending datasets dengan filter + bulk action + review dialog.
  *
+ * Sprint 9.5 Phase 1: Data sekarang dari backend via usePendingApprovals() hook
+ * (GET /api/v1/datasets?status=PENDING_REVIEW). Approve/reject mutations
+ * menggunakan useApproveDataset() dan useRejectDataset() dengan Sonner toasts.
+ *
  * Fitur:
  *   - Filter: provider (KKKS) Select, risk flag chips multi-select, sort dropdown, search
  *   - Bulk selection: per-row checkbox + master checkbox; toolbar muncul saat ≥1 selected
  *   - Per-row "Tinjau →" button → open ReviewDialog
- *   - Empty / loading / error states
+ *   - Empty / loading (skeleton) / error states
+ *   - Pagination: prev/next controls saat total > limit
  *
  * URL state: tidak dipakai di sini (filter ephemeral) — Tab state di parent CompliancePage.
- *
- * Data: useQuery dengan key `['compliance', 'queue']` supaya invalidate setelah action.
  */
 import { useCallback, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Badge,
   type BadgeVariant,
@@ -27,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@ghanem/ui';
-import { getApprovalQueue } from '../../api/compliance';
+import { usePendingApprovals } from '../../hooks/useCompliance';
 import { RISK_FLAG_META, type PendingDataset, type RiskFlag } from '../../mocks/compliance';
 import { ReviewDialog } from './ReviewDialog';
 import { BulkActionDialog } from './BulkActionDialog';
@@ -75,12 +77,13 @@ const RISK_BADGE_VARIANT: Record<'red' | 'amber' | 'blue', BadgeVariant> = {
 };
 
 export function ApprovalQueue(): JSX.Element {
-  const queryClient = useQueryClient();
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['compliance', 'queue'],
-    queryFn: getApprovalQueue,
-    staleTime: 10_000,
-  });
+  const [page, setPage] = useState(1);
+  const LIMIT = 20;
+
+  const { data: pageData, isLoading, isError, refetch } = usePendingApprovals(page, LIMIT);
+
+  // Flat item list for current page — keeps rest of component logic unchanged.
+  const data: PendingDataset[] | undefined = pageData?.items;
 
   // ── Filter state ─────────────────────────────────────────────────────
   const [providerFilter, setProviderFilter] = useState<string>('all');
@@ -170,7 +173,8 @@ export function ApprovalQueue(): JSX.Element {
   );
 
   const handleReviewAction = useCallback(() => {
-    // Refetch queue + cleanup selection of acted item.
+    // Mutations in ReviewDialog already invalidate ['compliance'] queries.
+    // Here we just clean up the local selection for the acted item.
     if (reviewItem) {
       setSelectedIds((prev) => {
         const next = new Set(prev);
@@ -178,23 +182,29 @@ export function ApprovalQueue(): JSX.Element {
         return next;
       });
     }
-    void queryClient.invalidateQueries({ queryKey: ['compliance'] });
-  }, [queryClient, reviewItem]);
+  }, [reviewItem]);
 
   const handleBulkComplete = useCallback(() => {
     setSelectedIds(new Set());
-    void queryClient.invalidateQueries({ queryKey: ['compliance'] });
-  }, [queryClient]);
+    // Mutations in BulkActionDialog already invalidate ['compliance'] queries.
+  }, []);
 
   // ── Render states ────────────────────────────────────────────────────
-  if (isLoading && !data) {
+  if (isLoading && !pageData) {
     return (
       <div
         role="status"
         aria-live="polite"
-        className="text-center text-ink-4 py-10 text-sm"
+        className="flex flex-col gap-2"
       >
-        Memuat antrian persetujuan…
+        {Array.from({ length: 6 }).map((_, idx) => (
+          <div
+            key={idx}
+            className="h-12 rounded-2 bg-surface-3 animate-skeleton-shimmer"
+            aria-hidden="true"
+          />
+        ))}
+        <span className="sr-only">Memuat antrian persetujuan…</span>
       </div>
     );
   }
@@ -490,11 +500,42 @@ export function ApprovalQueue(): JSX.Element {
         </div>
       )}
 
-      <p className="text-xs text-ink-4">
-        Menampilkan <span className="num font-medium">{filtered.length.toLocaleString('id-ID')}</span>{' '}
-        dari <span className="num font-medium">{(data ?? []).length.toLocaleString('id-ID')}</span>{' '}
-        dataset menunggu.
-      </p>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-xs text-ink-4">
+          Menampilkan{' '}
+          <span className="num font-medium">{filtered.length.toLocaleString('id-ID')}</span>{' '}
+          dari{' '}
+          <span className="num font-medium">{pageData?.total.toLocaleString('id-ID') ?? 0}</span>{' '}
+          dataset menunggu.
+        </p>
+        {pageData && pageData.totalPages > 1 ? (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon="chevL"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Halaman sebelumnya"
+            >
+              Prev
+            </Button>
+            <span className="text-xs text-ink-3 num">
+              {page} / {pageData.totalPages}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              rightIcon="arrowR"
+              disabled={page >= pageData.totalPages}
+              onClick={() => setPage((p) => Math.min(pageData.totalPages, p + 1))}
+              aria-label="Halaman berikutnya"
+            >
+              Next
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
       {/* ── Review dialog ─────────────────────────────────────────── */}
       {reviewItem ? (

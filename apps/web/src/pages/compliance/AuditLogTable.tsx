@@ -1,17 +1,21 @@
 /**
  * AuditLogTable — read-only log seluruh approval action.
  *
+ * Sprint 9.5 Phase 1: Data sekarang dari backend via useAuditLogs() hook
+ * (GET /api/v1/audit-logs). Komponen menggunakan adapter lokal untuk memetakan
+ * AuditLogEntry (API shape) ke AuditRow (display shape) yang mempertahankan
+ * semua fitur filter/sort/expand yang ada.
+ *
  * Fitur:
  *   - Filter: action multi-select, actor search, date range, dataset search
  *   - Sortable columns: timestamp (default newest first), actor, dataset
- *   - Click row → expand inline dengan full reason + before/after
+ *   - Click row → expand inline dengan full reason + metadata
  *   - Export CSV — serialize filtered results ke blob download
  *
- * Data: useQuery dengan key `['compliance', 'audit', filters]`. Refetch otomatis
- * setelah action di ReviewDialog/BulkActionDialog (parent invalidate ['compliance']).
+ * Data: useQuery dengan key `['audit-logs', params]`. Refetch otomatis
+ * setelah action di ReviewDialog/BulkActionDialog (parent invalidate ['compliance', 'audit-logs']).
  */
 import { Fragment, useCallback, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import {
   Button,
   EmptyState,
@@ -20,11 +24,60 @@ import {
   toast,
   type IconName,
 } from '@ghanem/ui';
-import { getAuditLog } from '../../api/compliance';
-import type { ApprovalAction, AuditEntry } from '../../mocks/compliance';
+import { useAuditLogs, type AuditLogEntry } from '../../hooks/useCompliance';
+
+/* ─── Display shape ──────────────────────────────────────────────────────── */
+
+/**
+ * AuditRow — normalised display shape consumed by filter/sort/render logic.
+ * Decouples component from both the mock AuditEntry and the real AuditLogEntry.
+ */
+interface AuditRow {
+  id: string;
+  action: string;
+  timestamp: string;
+  actor: {
+    fullName: string | null;
+    email: string;
+    organization: string | null;
+  };
+  datasetId: string;
+  datasetTitle: string;
+  reason?: string;
+  before?: string;
+  after?: string;
+}
+
+/** Adapt real API AuditLogEntry to the AuditRow display shape. */
+function adaptAuditLogEntry(entry: AuditLogEntry): AuditRow {
+  const meta = entry.metadata ?? {};
+  const reason =
+    typeof meta.reason === 'string' ? meta.reason :
+    typeof meta.notes === 'string' ? meta.notes :
+    undefined;
+  const datasetTitle =
+    typeof meta.datasetTitle === 'string' ? meta.datasetTitle :
+    typeof meta.title === 'string' ? meta.title :
+    entry.entityId;
+  return {
+    id: entry.id,
+    action: entry.action.toLowerCase(),
+    timestamp: entry.createdAt,
+    actor: {
+      fullName: entry.userFullName ?? null,
+      email: entry.userEmail ?? entry.userId,
+      organization: null,
+    },
+    datasetId: entry.entityId,
+    datasetTitle,
+    reason,
+  };
+}
+
+/* ─── Action display metadata ────────────────────────────────────────────── */
 
 const ACTION_OPTIONS: readonly {
-  value: ApprovalAction;
+  value: string;
   label: string;
   icon: IconName;
   cls: string;
@@ -36,14 +89,20 @@ const ACTION_OPTIONS: readonly {
   { value: 'archive', label: 'Arsip', icon: 'database', cls: 'bg-surface-3 text-ink-3 border-line' },
 ];
 
-const ACTION_META: Record<ApprovalAction, { label: string; icon: IconName; cls: string }> =
+const ACTION_META: Record<string, { label: string; icon: IconName; cls: string }> =
   ACTION_OPTIONS.reduce(
     (acc, opt) => {
       acc[opt.value] = { label: opt.label, icon: opt.icon, cls: opt.cls };
       return acc;
     },
-    {} as Record<ApprovalAction, { label: string; icon: IconName; cls: string }>,
+    {} as Record<string, { label: string; icon: IconName; cls: string }>,
   );
+
+const FALLBACK_ACTION_META: { label: string; icon: IconName; cls: string } = {
+  label: 'Aksi',
+  icon: 'database',
+  cls: 'bg-surface-3 text-ink-3 border-line',
+};
 
 type SortField = 'timestamp' | 'actor' | 'dataset';
 type SortDir = 'asc' | 'desc';
@@ -74,7 +133,7 @@ function csvEscape(value: string): string {
   return value;
 }
 
-function entriesToCsv(entries: AuditEntry[]): string {
+function entriesToCsv(entries: AuditRow[]): string {
   const header = ['timestamp', 'action', 'actor_name', 'actor_email', 'dataset_id', 'dataset_title', 'reason'];
   const rows = entries.map((e) =>
     [
@@ -94,7 +153,7 @@ function entriesToCsv(entries: AuditEntry[]): string {
 
 export function AuditLogTable(): JSX.Element {
   // ── Filter state (controlled local) ──────────────────────────────────
-  const [actionFilters, setActionFilters] = useState<ReadonlySet<ApprovalAction>>(
+  const [actionFilters, setActionFilters] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const [actorQuery, setActorQuery] = useState('');
@@ -109,14 +168,19 @@ export function AuditLogTable(): JSX.Element {
   // ── Expanded row state ────────────────────────────────────────────────
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // ── Query (un-filtered — kita filter di client supaya UI snappy) ──────
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['compliance', 'audit'],
-    queryFn: () => getAuditLog(),
-    staleTime: 10_000,
+  // ── Query — real API endpoint, client-filtered for snappy UX ─────────
+  const { data: rawData, isLoading, isError, refetch } = useAuditLogs({
+    entity: 'Dataset',
+    limit: 100,
   });
 
-  const toggleActionFilter = useCallback((value: ApprovalAction) => {
+  // Adapt API entries to display rows (memoised — only re-runs when rawData changes)
+  const data = useMemo<AuditRow[]>(
+    () => (rawData?.items ?? []).map(adaptAuditLogEntry),
+    [rawData],
+  );
+
+  const toggleActionFilter = useCallback((value: string) => {
     setActionFilters((prev) => {
       const next = new Set(prev);
       if (next.has(value)) next.delete(value);
@@ -138,7 +202,7 @@ export function AuditLogTable(): JSX.Element {
   );
 
   const filtered = useMemo(() => {
-    let list = data ?? [];
+    let list = data;
     if (actionFilters.size > 0) {
       list = list.filter((e) => actionFilters.has(e.action));
     }
@@ -189,7 +253,7 @@ export function AuditLogTable(): JSX.Element {
   }, [data, actionFilters, actorQuery, datasetQuery, fromDate, toDate, sortField, sortDir]);
 
   const resetFilters = useCallback(() => {
-    setActionFilters(new Set());
+    setActionFilters(new Set<string>());
     setActorQuery('');
     setDatasetQuery('');
     setFromDate('');
@@ -222,14 +286,21 @@ export function AuditLogTable(): JSX.Element {
   }, [filtered]);
 
   // ── Render states ────────────────────────────────────────────────────
-  if (isLoading && !data) {
+  if (isLoading && data.length === 0) {
     return (
       <div
         role="status"
         aria-live="polite"
-        className="text-center text-ink-4 py-10 text-sm"
+        className="flex flex-col gap-3"
       >
-        Memuat log audit…
+        {Array.from({ length: 5 }).map((_, idx) => (
+          <div
+            key={idx}
+            className="h-10 rounded-2 bg-surface-3 animate-skeleton-shimmer"
+            aria-hidden="true"
+          />
+        ))}
+        <span className="sr-only">Memuat log audit…</span>
       </div>
     );
   }
@@ -345,7 +416,7 @@ export function AuditLogTable(): JSX.Element {
           </span>{' '}
           dari{' '}
           <span className="num font-semibold text-ink">
-            {(data ?? []).length.toLocaleString('id-ID')}
+            {data.length.toLocaleString('id-ID')}
           </span>{' '}
           entri.
         </p>
@@ -410,7 +481,7 @@ export function AuditLogTable(): JSX.Element {
             </thead>
             <tbody>
               {filtered.map((e) => {
-                const meta = ACTION_META[e.action];
+                const meta = ACTION_META[e.action] ?? FALLBACK_ACTION_META;
                 const expanded = expandedId === e.id;
                 const reasonShort = e.reason ? truncate(e.reason, 50) : '—';
                 return (

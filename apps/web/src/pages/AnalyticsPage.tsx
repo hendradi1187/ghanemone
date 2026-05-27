@@ -1,33 +1,42 @@
 /**
  * AnalyticsPage — `/analytics` route.
  *
- * Layout (Phase 8.11):
+ * Sprint 9.5 Phase 2: Real stats data integrated.
+ *
+ * Layout:
  *   - Left rail (w-72, flex-none): SavedQueryList — built-in + user-saved
- *   - Main area (flex-1): QueryBuilder + ChartPreview + action toolbar
+ *   - Main area (flex-1): two sections:
+ *     1. "Platform Overview" — real charts from /stats/* endpoints
+ *     2. "Chart Builder" — QueryBuilder + saved queries (mock run for now)
  *
- * State strategy:
- *   - URL search params adalah single source of truth untuk current draft
- *     (dataset, chartType, xAxis, yAxis, aggregation). Shareable + history-friendly.
- *   - TanStack Query mengelola async hits (savedQueries, runQuery).
- *   - localStorage di-encapsulate di `api/analytics.ts` (consumer tidak tahu).
+ * Real data (via useStats hooks):
+ *   - BarChart: datasets by category
+ *   - LineChart: datasets by month (12-month trend)
+ *   - PieChart: uploads by provider (top 5)
+ *   - DonutChart: compliance status
  *
- * Validation gate: tombol "Jalankan" disabled sampai semua required field terisi.
+ * Query Builder: still uses mock catalog + mock run (Sprint 9.6 will add
+ * server-evaluated queries). Saved queries persist to localStorage.
  *
  * A11y:
- *   - Heading hierarchy: h1 page > h2 builder/preview > h3 dst.
- *   - Toast feedback untuk save/export/delete.
- *   - Confirm dialog untuk delete (mencegah accidental).
+ *   - Heading hierarchy h1 > h2 > h3
+ *   - Toast feedback for save/delete
+ *   - Confirm dialog for delete
  */
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  BarChartCard,
   Button,
   Dialog,
+  DonutChartCard,
   FormField,
   FormProvider,
   Icon,
   Input,
+  LineChartCard,
+  PieChartCard,
   toast,
   useForm,
   zodResolver,
@@ -46,6 +55,12 @@ import type {
   SavedQuery,
 } from '../mocks/analytics';
 import { useAuth } from '../hooks/use-auth';
+import {
+  useDatasetsByCategory,
+  useDatasetsByMonth,
+  useUploadsByProvider,
+  useComplianceStatus,
+} from '../hooks/useStats';
 import { SavedQueryList } from './analytics/SavedQueryList';
 import { QueryBuilder } from './analytics/QueryBuilder';
 import { ChartPreview, exportResultAsCsv } from './analytics/ChartPreview';
@@ -76,13 +91,54 @@ const saveQuerySchema = z.object({
 
 type SaveQueryFormValues = z.infer<typeof saveQuerySchema>;
 
+// Palette for provider bar chart.
+const PROVIDER_COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899'];
+
+function fmtInt(value: number): string {
+  return value.toLocaleString('id-ID');
+}
+
 export function AnalyticsPage(): JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const userLabel = user?.fullName ?? user?.email ?? 'Anonymous';
 
-  /* ── Draft state (URL-backed) ──────────────────────────────────────── */
+  /* ── Real stats hooks ─────────────────────────────────────────────── */
+  const categoryQuery = useDatasetsByCategory();
+  const monthlyQuery = useDatasetsByMonth();
+  const providerQuery = useUploadsByProvider();
+  const complianceQuery = useComplianceStatus();
+
+  /* ── Derived chart data ────────────────────────────────────────────── */
+  const monthlyData = useMemo(
+    () => (monthlyQuery.data ?? []).map((d) => ({ month: d.label, count: d.count })),
+    [monthlyQuery.data],
+  );
+
+  const top5Providers = useMemo(
+    () => (providerQuery.data ?? []).slice(0, 5).map((p) => ({ name: p.providerName, count: p.count })),
+    [providerQuery.data],
+  );
+
+  const categoryData = useMemo(
+    () => (categoryQuery.data ?? []).map((c) => ({ name: c.label, value: c.count })),
+    [categoryQuery.data],
+  );
+
+  const complianceData = useMemo(() => {
+    const d = complianceQuery.data;
+    if (!d) return [];
+    return [
+      { name: 'Approved', value: d.approved },
+      { name: 'Draft', value: d.draft },
+      { name: 'Pending Review', value: d.pendingReview },
+      { name: 'Rejected', value: d.rejected },
+      { name: 'Archived', value: d.archived },
+    ].filter((s) => s.value > 0);
+  }, [complianceQuery.data]);
+
+  /* ── Draft state (URL-backed) ─────────────────────────────────────── */
   const draft = useMemo<Partial<AnalyticsQuery>>(
     () => ({
       datasetId: searchParams.get('dataset') ?? undefined,
@@ -133,7 +189,7 @@ export function AnalyticsPage(): JSX.Element {
     setLastRunQuery(null);
   }, [setSearchParams]);
 
-  /* ── Saved queries ──────────────────────────────────────────────────── */
+  /* ── Saved queries ────────────────────────────────────────────────── */
   const savedQueriesQuery = useQuery({
     queryKey: ['analytics', 'saved'],
     queryFn: getSavedQueries,
@@ -155,7 +211,7 @@ export function AnalyticsPage(): JSX.Element {
     [updateDraft],
   );
 
-  /* ── Delete saved query (with confirm) ─────────────────────────────── */
+  /* ── Delete saved query ────────────────────────────────────────────── */
   const [deleteTarget, setDeleteTarget] = useState<SavedQuery | null>(null);
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteSavedQuery(id),
@@ -174,7 +230,7 @@ export function AnalyticsPage(): JSX.Element {
     },
   });
 
-  /* ── Run query (manual trigger) ────────────────────────────────────── */
+  /* ── Run query ─────────────────────────────────────────────────────── */
   const [lastRunQuery, setLastRunQuery] = useState<AnalyticsQuery | null>(null);
   const runQueryMutation = useMutation({
     mutationFn: runAnalyticsQuery,
@@ -247,8 +303,6 @@ export function AnalyticsPage(): JSX.Element {
   }, [draft.datasetId, runQueryMutation.data]);
 
   const handleExportPng = useCallback(() => {
-    // PNG export butuh canvas serialization dari Recharts SVG — defer ke
-    // implementasi nyata (Phase 9). Untuk sekarang berikan UX hint via toast.
     toast.info('Export PNG — segera hadir', {
       description: 'Fitur ini akan tersedia pada Phase 9 (server-side render Recharts).',
     });
@@ -270,48 +324,114 @@ export function AnalyticsPage(): JSX.Element {
           <p className="text-cap text-green-700 uppercase tracking-cap mb-1">
             SPEKTRUM · Analytics
           </p>
-          <h1 className="font-display font-bold text-h1 text-ink m-0">Chart Builder</h1>
+          <h1 className="font-display font-bold text-h1 text-ink m-0">Analytics</h1>
           <p className="text-sm text-ink-4 mt-1 max-w-2xl">
-            Susun visualisasi lintas atribut dataset tanpa SQL. Hasil bisa disimpan
-            sebagai saved query untuk dibagikan ke tim.
+            Platform overview dengan data real + Chart Builder untuk eksplorasi
+            dataset secara ad-hoc.
           </p>
         </header>
 
-        <div className="px-6 py-5 flex flex-col gap-4 max-w-6xl mx-auto">
-          <QueryBuilder value={draft} onChange={updateDraft} />
+        <div className="px-6 py-5 flex flex-col gap-6 max-w-6xl mx-auto">
 
-          {/* Action toolbar */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="primary"
-              size="md"
-              leftIcon="bolt"
-              onClick={handleRun}
-              disabled={!isDraftComplete}
-              loading={runQueryMutation.isPending}
+          {/* ── Section 1: Platform Overview (real stats) ──────────────── */}
+          <section aria-labelledby="analytics-overview-heading">
+            <h2
+              id="analytics-overview-heading"
+              className="font-display font-semibold text-h3 text-ink mb-3"
             >
-              Jalankan
-            </Button>
-            <Button variant="secondary" size="md" leftIcon="check" onClick={handleOpenSaveDialog}>
-              Simpan query
-            </Button>
-            <Button variant="secondary" size="md" leftIcon="download" onClick={handleExportCsv}>
-              Export CSV
-            </Button>
-            <Button variant="secondary" size="md" leftIcon="download" onClick={handleExportPng}>
-              Export PNG
-            </Button>
-            <Button variant="ghost" size="md" leftIcon="refresh" onClick={handleReset}>
-              Reset
-            </Button>
-          </div>
+              Platform Overview
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <LineChartCard
+                title="Tren Dataset per Bulan"
+                subtitle="12 bulan terakhir"
+                data={monthlyData}
+                xKey="month"
+                series={[{ key: 'count', label: 'Dataset' }]}
+                height={240}
+                loading={monthlyQuery.isLoading}
+                formatValue={fmtInt}
+              />
+              <BarChartCard
+                title="Upload per Provider"
+                subtitle="Top 5 KKKS"
+                data={top5Providers}
+                xKey="name"
+                yKey="count"
+                colors={PROVIDER_COLORS}
+                orientation="horizontal"
+                height={240}
+                loading={providerQuery.isLoading}
+                formatValue={fmtInt}
+              />
+              <PieChartCard
+                title="Distribusi Kategori"
+                subtitle="Persentase per kategori dataset"
+                data={categoryData}
+                height={240}
+                loading={categoryQuery.isLoading}
+                formatValue={fmtInt}
+              />
+              <DonutChartCard
+                title="Status Compliance"
+                subtitle="Approved · Pending · Draft · Rejected"
+                data={complianceData}
+                height={240}
+                loading={complianceQuery.isLoading}
+                centerLabel="Total"
+                formatValue={fmtInt}
+              />
+            </div>
+          </section>
 
-          <section aria-label="Preview chart">
-            <ChartPreview
-              result={runQueryMutation.data ?? null}
-              query={lastRunQuery}
-              loading={runQueryMutation.isPending}
-            />
+          {/* ── Section 2: Chart Builder ────────────────────────────────── */}
+          <section aria-labelledby="analytics-builder-heading">
+            <h2
+              id="analytics-builder-heading"
+              className="font-display font-semibold text-h3 text-ink mb-3"
+            >
+              Chart Builder
+            </h2>
+            <p className="text-sm text-ink-4 mb-4">
+              Susun visualisasi lintas atribut dataset tanpa SQL. Hasil bisa disimpan
+              sebagai saved query untuk dibagikan ke tim.
+            </p>
+
+            <QueryBuilder value={draft} onChange={updateDraft} />
+
+            {/* Action toolbar */}
+            <div className="flex items-center gap-2 flex-wrap mt-4">
+              <Button
+                variant="primary"
+                size="md"
+                leftIcon="bolt"
+                onClick={handleRun}
+                disabled={!isDraftComplete}
+                loading={runQueryMutation.isPending}
+              >
+                Jalankan
+              </Button>
+              <Button variant="secondary" size="md" leftIcon="check" onClick={handleOpenSaveDialog}>
+                Simpan query
+              </Button>
+              <Button variant="secondary" size="md" leftIcon="download" onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+              <Button variant="secondary" size="md" leftIcon="download" onClick={handleExportPng}>
+                Export PNG
+              </Button>
+              <Button variant="ghost" size="md" leftIcon="refresh" onClick={handleReset}>
+                Reset
+              </Button>
+            </div>
+
+            <section aria-label="Preview chart" className="mt-4">
+              <ChartPreview
+                result={runQueryMutation.data ?? null}
+                query={lastRunQuery}
+                loading={runQueryMutation.isPending}
+              />
+            </section>
           </section>
         </div>
       </div>
