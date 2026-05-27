@@ -159,9 +159,46 @@ type DatasetCategoryEnum =
   | 'PRODUCTION'
   | 'CONCESSION'
   | 'GEOLOGY'
-  | 'DOCUMENT';
+  | 'DOCUMENT'
+  | 'INFRASTRUCTURE';
 
 type SensitivityEnum = 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED';
+
+// ---------------------------------------------------------------------------
+// Sprint 9.4: Rich metadata sub-types — mirror frontend type contracts exactly
+// ---------------------------------------------------------------------------
+
+interface DatasetAttribute {
+  name: string;
+  type: 'string' | 'number' | 'date' | 'geometry';
+  description: string;
+  nullable: boolean;
+  example: string;
+}
+
+interface LineageItem {
+  id: string;
+  name: string;
+  type: 'source' | 'connector' | 'derived' | 'product';
+}
+
+interface DatasetLineage {
+  upstream: LineageItem[];
+  downstream: LineageItem[];
+}
+
+interface DatasetFile {
+  name: string;
+  size_bytes: number;
+  format: string;
+  updated_at: string;
+}
+
+interface DatasetContact {
+  name: string;
+  email: string;
+  organization: string;
+}
 
 interface DatasetSeedEntry {
   id: string;
@@ -181,6 +218,12 @@ interface DatasetSeedEntry {
     record_count: number;
     file_format: string[];
     license: string;
+    // Sprint 9.4 additions
+    attributes: DatasetAttribute[];
+    lineage: DatasetLineage;
+    files: DatasetFile[];
+    tags: string[];
+    contact: DatasetContact;
   };
   downloadCount: number;
   viewCount: number;
@@ -253,6 +296,7 @@ const KIND_BY_CATEGORY: Record<DatasetCategoryEnum, string> = {
   CONCESSION:     'LAYER',
   GEOLOGY:        'LAYER',
   DOCUMENT:       'DOC',
+  INFRASTRUCTURE: 'LAYER',
 };
 
 interface CategoryDef {
@@ -289,14 +333,254 @@ const CATEGORY_DEFS: CategoryDef[] = [
   },
 ];
 
+// =============================================================================
+// Sprint 9.4 — Rich metadata helper functions
+// =============================================================================
+
+/** Returns the canonical attribute schema for a given dataset category. */
+function buildAttributesForCategory(cat: DatasetCategoryEnum): DatasetAttribute[] {
+  switch (cat) {
+    case 'SEISMIC':
+      return [
+        { name: 'inline_id',    type: 'number', description: 'Identifier inline pada survey 3D.',      nullable: false, example: '1250' },
+        { name: 'crossline_id', type: 'number', description: 'Identifier crossline pada survey 3D.',   nullable: false, example: '2430' },
+        { name: 'cdp',          type: 'number', description: 'Common Depth Point number.',              nullable: false, example: '45820' },
+        { name: 'bin_x',        type: 'number', description: 'Koordinat X bin (UTM meter).',            nullable: false, example: '642135.50' },
+        { name: 'bin_y',        type: 'number', description: 'Koordinat Y bin (UTM meter).',            nullable: false, example: '9874201.00' },
+        { name: 'amplitude',    type: 'number', description: 'Nilai amplitudo trace.',                  nullable: true,  example: '-1243.75' },
+        { name: 'samples',      type: 'number', description: 'Jumlah sample per trace.',                nullable: false, example: '1500' },
+      ];
+    case 'WELL_LOG':
+      return [
+        { name: 'well_uwi',  type: 'string', description: 'Unique Well Identifier (UWI) sumur.',       nullable: false, example: 'GID-WJ-001' },
+        { name: 'md_m',      type: 'number', description: 'Measured Depth (m dari permukaan).',        nullable: false, example: '2480.50' },
+        { name: 'tvd_m',     type: 'number', description: 'True Vertical Depth (m TVDSS).',            nullable: false, example: '2465.12' },
+        { name: 'gr',        type: 'number', description: 'Gamma Ray (GAPI).',                         nullable: true,  example: '75.3' },
+        { name: 'rhob',      type: 'number', description: 'Bulk Density (g/cm³).',                     nullable: true,  example: '2.41' },
+        { name: 'nphi',      type: 'number', description: 'Neutron Porosity (fraction).',              nullable: true,  example: '0.18' },
+        { name: 'formation', type: 'string', description: 'Nama formasi geologi pada kedalaman ini.',  nullable: true,  example: 'Bekasap Formation' },
+      ];
+    case 'PRODUCTION':
+      return [
+        { name: 'well_id',      type: 'string', description: 'Identifier sumur produksi.',             nullable: false, example: 'GID-RI-001' },
+        { name: 'date',         type: 'date',   description: 'Tanggal laporan produksi.',               nullable: false, example: '2024-01-31' },
+        { name: 'oil_bopd',     type: 'number', description: 'Produksi minyak harian (BOPD).',         nullable: false, example: '12450' },
+        { name: 'gas_mmscfd',   type: 'number', description: 'Produksi gas harian (MMSCFD).',          nullable: false, example: '45.2' },
+        { name: 'water_bwpd',   type: 'number', description: 'Produksi air harian (BWPD).',            nullable: false, example: '8200' },
+        { name: 'status',       type: 'string', description: 'Status sumur (Active/Suspended/etc).',   nullable: false, example: 'Active' },
+      ];
+    case 'CONCESSION':
+      return [
+        { name: 'wk_id',          type: 'string',   description: 'Identifier Wilayah Kerja.',          nullable: false, example: 'WK-ONWJ-001' },
+        { name: 'wk_name',        type: 'string',   description: 'Nama resmi Wilayah Kerja.',           nullable: false, example: 'Offshore Northwest Java' },
+        { name: 'operator',       type: 'string',   description: 'Operator KKKS utama.',                nullable: false, example: 'PHE ONWJ' },
+        { name: 'contract_type',  type: 'string',   description: 'Jenis kontrak (Gross Split/PSC).',    nullable: false, example: 'Gross Split' },
+        { name: 'contract_start', type: 'date',     description: 'Tanggal mulai kontrak.',              nullable: false, example: '2018-08-09' },
+        { name: 'contract_end',   type: 'date',     description: 'Tanggal berakhir kontrak.',           nullable: false, example: '2048-08-08' },
+        { name: 'geometry',       type: 'geometry', description: 'Batas polygon Wilayah Kerja.',        nullable: false, example: 'MULTIPOLYGON((...))' },
+      ];
+    case 'GEOLOGY':
+      return [
+        { name: 'sample_id',     type: 'string', description: 'Identifier sampel geologi.',            nullable: false, example: 'GC-2024-001' },
+        { name: 'formation',     type: 'string', description: 'Formasi geologi asal sampel.',          nullable: false, example: 'Talangakar Formation' },
+        { name: 'depth_m',       type: 'number', description: 'Kedalaman pengambilan sampel (m).',     nullable: false, example: '2480.5' },
+        { name: 'lithology',     type: 'string', description: 'Deskripsi litologi.',                   nullable: false, example: 'Shale, dark grey, fissile' },
+        { name: 'porosity',      type: 'number', description: 'Porositas pengukuran lab (%)',           nullable: true,  example: '18.4' },
+        { name: 'permeability',  type: 'number', description: 'Permeabilitas (mD).',                   nullable: true,  example: '125.3' },
+      ];
+    case 'DOCUMENT':
+      return [
+        { name: 'doc_id',           type: 'string', description: 'Identifier dokumen.',                nullable: false, example: 'FWR-2024-ONWJ-12' },
+        { name: 'title',            type: 'string', description: 'Judul dokumen.',                     nullable: false, example: 'Final Well Report GWN-01' },
+        { name: 'author',           type: 'string', description: 'Penulis atau tim penyusun.',         nullable: false, example: 'PHE ONWJ Geology Team' },
+        { name: 'date',             type: 'date',   description: 'Tanggal penerbitan dokumen.',         nullable: false, example: '2024-05-12' },
+        { name: 'category',         type: 'string', description: 'Kategori dokumen (FWR/AFE/dll).',    nullable: false, example: 'Final Well Report' },
+        { name: 'confidentiality',  type: 'string', description: 'Tingkat kerahasiaan.',               nullable: false, example: 'Internal' },
+      ];
+    case 'INFRASTRUCTURE':
+      return [
+        { name: 'asset_id',       type: 'string',   description: 'Identifier aset infrastruktur.',     nullable: false, example: 'ASSET-PF-001' },
+        { name: 'asset_type',     type: 'string',   description: 'Tipe aset (Platform/FPSO/dll).',     nullable: false, example: 'Platform' },
+        { name: 'installed_date', type: 'date',     description: 'Tanggal instalasi aset.',             nullable: true,  example: '2003-06-15' },
+        { name: 'capacity',       type: 'number',   description: 'Kapasitas desain (BOPD/MMSCFD).',    nullable: true,  example: '50000' },
+        { name: 'status',         type: 'string',   description: 'Status operasional aset.',           nullable: false, example: 'Active' },
+        { name: 'geometry',       type: 'geometry', description: 'Lokasi geografis aset.',             nullable: false, example: 'POINT(107.90 -5.80)' },
+      ];
+  }
+}
+
+/** Returns lineage graph (upstream sources + downstream derivatives) for a dataset. */
+function buildLineageForDataset(args: {
+  id: string;
+  category: DatasetCategoryEnum;
+  categoryLabel: string;
+  providerName: string;
+  providerInitials: string;
+  sensitivityLevel: SensitivityEnum;
+}): DatasetLineage {
+  const { id, categoryLabel, providerName, providerInitials, sensitivityLevel } = args;
+  const upstream: LineageItem[] = [
+    {
+      id: `src-${id}-internal`,
+      name: `KKKS Internal System — ${providerInitials}`,
+      type: 'source',
+    },
+    {
+      id: `conn-spark-${id}`,
+      name: `SPARK Connector ${categoryLabel}`,
+      type: 'connector',
+    },
+  ];
+  const downstream: LineageItem[] = [
+    {
+      id: `${id}-analytics`,
+      name: `${categoryLabel} Analytics Dashboard`,
+      type: 'derived',
+    },
+  ];
+  if (sensitivityLevel === 'PUBLIC') {
+    downstream.push({
+      id: `${id}-public-layer`,
+      name: `Public Map Layer — ${providerName}`,
+      type: 'product',
+    });
+  }
+  return { upstream, downstream };
+}
+
+/**
+ * Returns file list for a dataset.
+ * kind: 'LAYER' → 2-3 files (SHP/GeoJSON/PRJ), 'VOLUME' → 1 SEG-Y, 'DOC' → 1 PDF
+ */
+function buildFilesForDataset(args: {
+  id: string;
+  kind: string;
+  year: number;
+  fileSizeBytes: number;
+}): DatasetFile[] {
+  const { id, kind, year, fileSizeBytes } = args;
+  const baseDate = new Date(`${year}-06-15T08:00:00Z`).getTime();
+
+  if (kind === 'VOLUME') {
+    return [
+      {
+        name: `${id}.sgy`,
+        size_bytes: fileSizeBytes,
+        format: 'SEG-Y',
+        updated_at: new Date(baseDate + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+  }
+
+  if (kind === 'DOC') {
+    return [
+      {
+        name: `${id}.pdf`,
+        size_bytes: fileSizeBytes,
+        format: 'PDF',
+        updated_at: new Date(baseDate).toISOString(),
+      },
+    ];
+  }
+
+  // LAYER — distribute proportionally across 3 files
+  const shpSize  = Math.round(fileSizeBytes * 0.60);
+  const dbfSize  = Math.round(fileSizeBytes * 0.30);
+  const prjSize  = fileSizeBytes - shpSize - dbfSize;
+  return [
+    {
+      name: `${id}.shp`,
+      size_bytes: shpSize,
+      format: 'SHP',
+      updated_at: new Date(baseDate + 10 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      name: `${id}.dbf`,
+      size_bytes: dbfSize,
+      format: 'DBF',
+      updated_at: new Date(baseDate + 10 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      name: `${id}.prj`,
+      size_bytes: prjSize,
+      format: 'PRJ',
+      updated_at: new Date(baseDate).toISOString(),
+    },
+  ];
+}
+
+/** Returns 4-6 tags for a dataset (kebab-case). */
+function buildTagsForDataset(args: {
+  category: DatasetCategoryEnum;
+  providerName: string;
+  region: string;
+  year: number;
+  sensitivityLevel: SensitivityEnum;
+}): string[] {
+  const slug = (s: string): string =>
+    s.toLowerCase().replace(/[&/]+/g, '').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+  const catSlug = args.category.toLowerCase().replace('_', '-');
+  const provSlug = slug(args.providerName);
+  const regionSlug = slug(args.region);
+  const visibilityTag = args.sensitivityLevel === 'PUBLIC' ? 'public' : 'internal';
+  const qualityTag = args.year >= 2022 ? 'verified' : 'legacy';
+
+  return [catSlug, regionSlug, provSlug, String(args.year), visibilityTag, qualityTag];
+}
+
+/** Returns data steward contact derived from provider. */
+function buildContactForDataset(args: {
+  providerName: string;
+  providerSlug: string;
+}): DatasetContact {
+  // Derive a reasonable email domain from the provider slug
+  const domainMap: Record<string, string> = {
+    'phe-onwj':        'phe-onwj.co.id',
+    'pertamina-hulu':  'pertamina-hulu.com',
+    'medco':           'medcoenergi.com',
+    'chevron':         'chevron.co.id',
+    'inpex':           'inpex.co.jp',
+    'eni':             'eni.com',
+    'skk-migas':       'skkmigas.go.id',
+    'harbour':         'harbourenergy.com',
+  };
+  const domain = domainMap[args.providerSlug] ?? `${args.providerSlug}.co.id`;
+  return {
+    name: 'Data Steward Team',
+    email: `data-steward@${domain}`,
+    organization: args.providerName,
+  };
+}
+
+// =============================================================================
+// Provider display metadata (for contact + lineage generation)
+// =============================================================================
+
+const PROVIDER_DISPLAY: Record<string, { name: string; initials: string }> = {
+  'phe-onwj':       { name: 'PHE ONWJ',               initials: 'PH'  },
+  'pertamina-hulu': { name: 'Pertamina Hulu Mahakam',  initials: 'PHM' },
+  'medco':          { name: 'Medco E&P',               initials: 'ME'  },
+  'chevron':        { name: 'Chevron Indonesia',        initials: 'CI'  },
+  'inpex':          { name: 'Inpex Masela',             initials: 'IM'  },
+  'eni':            { name: 'Eni Indonesia',            initials: 'EI'  },
+  'skk-migas':      { name: 'SKK Migas',               initials: 'SM'  },
+  'harbour':        { name: 'Harbour Energy',           initials: 'HE'  },
+};
+
+// =============================================================================
+// End Sprint 9.4 helpers
+// =============================================================================
+
 function descriptionFor(cat: DatasetCategoryEnum, region: string, provider: string): string {
   switch (cat) {
-    case 'SEISMIC':    return `Data seismik di area ${region}, hasil akuisisi terkini oleh ${provider}. Kualitas tinggi, fully processed.`;
-    case 'WELL_LOG':   return `Komposit wireline log dari sumur di ${region}. Terverifikasi oleh ${provider}.`;
-    case 'PRODUCTION': return `Laporan produksi bulanan untuk lapangan di ${region}, dikelola oleh ${provider}.`;
-    case 'CONCESSION': return `Batas Wilayah Kerja di ${region}. Sumber: kontrak PSC terkini, ${provider}.`;
-    case 'GEOLOGY':    return `Sampel geologi/geokimia dari ${region}. Akuisisi & analisis ${provider}.`;
-    case 'DOCUMENT':   return `Dokumen referensi ${provider} untuk operasional di ${region}.`;
+    case 'SEISMIC':        return `Data seismik di area ${region}, hasil akuisisi terkini oleh ${provider}. Kualitas tinggi, fully processed.`;
+    case 'WELL_LOG':       return `Komposit wireline log dari sumur di ${region}. Terverifikasi oleh ${provider}.`;
+    case 'PRODUCTION':     return `Laporan produksi bulanan untuk lapangan di ${region}, dikelola oleh ${provider}.`;
+    case 'CONCESSION':     return `Batas Wilayah Kerja di ${region}. Sumber: kontrak PSC terkini, ${provider}.`;
+    case 'GEOLOGY':        return `Sampel geologi/geokimia dari ${region}. Akuisisi & analisis ${provider}.`;
+    case 'DOCUMENT':       return `Dokumen referensi ${provider} untuk operasional di ${region}.`;
+    case 'INFRASTRUCTURE': return `Data infrastruktur perminyakan di ${region}. Platform, pipeline, dan fasilitas oleh ${provider}.`;
   }
 }
 
@@ -340,13 +624,23 @@ function buildDatasets(): DatasetSeedEntry[] {
       };
       const titleSuffix = catDef.id === 'DOCUMENT' ? ` (${year})` : '';
 
+      const sensitivityLvl = sensitivityFromStatus(status);
+      const providerDisplay = PROVIDER_DISPLAY[providerId] ?? { name: providerId, initials: providerId.slice(0, 2).toUpperCase() };
+      // Approximate file size: VOLUME ~4-18 GB, LAYER ~5-250 MB, DOC ~0.5-15 MB
+      const fileSizeBytes =
+        kind === 'VOLUME'
+          ? (4_000_000_000 + i * 137_000_000)
+          : kind === 'DOC'
+          ? (500_000 + i * 1_400_000)
+          : (5_000_000 + i * 11_000_000);
+
       results.push({
         id,
         title: `${prefix} ${region.name}${titleSuffix}`,
         description: descriptionFor(catDef.id, region.name, providerId),
         category: catDef.id,
         format,
-        sensitivityLevel: sensitivityFromStatus(status),
+        sensitivityLevel: sensitivityLvl,
         verified,
         year,
         centerLat: region.lat,
@@ -358,6 +652,28 @@ function buildDatasets(): DatasetSeedEntry[] {
           record_count: kind === 'VOLUME' ? 1_200_000 + i * 5_000 : 240 + i * 17,
           file_format: fileFormatByKind[kind]!,
           license: LICENSES[status],
+          // Sprint 9.4: rich metadata fields
+          attributes: buildAttributesForCategory(catDef.id),
+          lineage: buildLineageForDataset({
+            id,
+            category: catDef.id,
+            categoryLabel: catDef.label,
+            providerName: providerDisplay.name,
+            providerInitials: providerDisplay.initials,
+            sensitivityLevel: sensitivityLvl,
+          }),
+          files: buildFilesForDataset({ id, kind, year, fileSizeBytes }),
+          tags: buildTagsForDataset({
+            category: catDef.id,
+            providerName: providerDisplay.name,
+            region: region.name,
+            year,
+            sensitivityLevel: sensitivityLvl,
+          }),
+          contact: buildContactForDataset({
+            providerName: providerDisplay.name,
+            providerSlug: providerId,
+          }),
         },
         downloadCount: 30 + ((i * 13) % 400),
         viewCount: 200 + ((i * 91) % 9000),

@@ -50,12 +50,48 @@ export class DataQualityDto {
   @ApiPropertyOptional() currency?: string;
 }
 
-/** Lineage item */
+// ---------------------------------------------------------------------------
+// Sprint 9.4 — Rich detail sub-DTOs (mirror frontend type contracts exactly)
+// ---------------------------------------------------------------------------
+
+/** One column/attribute in the dataset schema. */
+export class DatasetAttributeDto {
+  @ApiProperty() name!: string;
+  @ApiProperty({ enum: ['string', 'number', 'date', 'geometry'] })
+  type!: 'string' | 'number' | 'date' | 'geometry';
+  @ApiProperty() description!: string;
+  @ApiProperty() nullable!: boolean;
+  @ApiProperty() example!: string;
+}
+
+/** One node in the lineage graph. */
 export class LineageItemDto {
-  @ApiProperty() stage!: string;
-  @ApiProperty() timestamp!: string;
-  @ApiProperty() actor!: string;
-  @ApiPropertyOptional() notes?: string;
+  @ApiProperty() id!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ enum: ['source', 'connector', 'derived', 'product'] })
+  type!: 'source' | 'connector' | 'derived' | 'product';
+}
+
+/** Upstream + downstream lineage graph. */
+export class DatasetLineageDto {
+  @ApiProperty({ type: [LineageItemDto] }) upstream!: LineageItemDto[];
+  @ApiProperty({ type: [LineageItemDto] }) downstream!: LineageItemDto[];
+}
+
+/** One file in the dataset's file list. */
+export class DatasetFileDto {
+  @ApiProperty() name!: string;
+  @ApiProperty() size_bytes!: number;
+  @ApiProperty() format!: string;
+  /** ISO 8601 timestamp */
+  @ApiProperty() updated_at!: string;
+}
+
+/** Data steward / contact information. */
+export class DatasetContactDto {
+  @ApiProperty() name!: string;
+  @ApiProperty() email!: string;
+  @ApiProperty() organization!: string;
 }
 
 /**
@@ -101,6 +137,22 @@ export class DetailDatasetResponseDto extends CompactDatasetResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   publishedAt!: string | null;
+
+  // Sprint 9.4: rich detail fields extracted from metadata JSON
+  @ApiProperty({ type: [DatasetAttributeDto], description: 'Column/attribute schema of the dataset' })
+  attributes!: DatasetAttributeDto[];
+
+  @ApiProperty({ type: DatasetLineageDto, description: 'Upstream sources and downstream derivatives' })
+  lineage!: DatasetLineageDto;
+
+  @ApiProperty({ type: [DatasetFileDto], description: 'Files contained in this dataset' })
+  files!: DatasetFileDto[];
+
+  @ApiProperty({ type: [String], description: 'Freeform tags (kebab-case)' })
+  tags!: string[];
+
+  @ApiProperty({ type: DatasetContactDto, description: 'Data steward contact information' })
+  contact!: DatasetContactDto;
 }
 
 export class PaginatedDatasetsResponseDto {

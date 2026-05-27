@@ -4,17 +4,22 @@
  * Sprint 9.3: All functions now call backend at /api/v1/datasets and
  * /api/v1/search/datasets. The old mock-based functions have been replaced.
  *
+ * Sprint 9.4: adaptApiDataset() now consumes real values for attributes,
+ * lineage, files, tags, and contact returned by the backend instead of
+ * filling empty defaults.
+ *
  * Adapter layer: the backend returns a flatter shape than the rich DatasetRecord
  * used by existing UI components. ApiDataset (list/detail) is mapped via
  * adaptApiDataset() to a DatasetRecord-compatible shape so ExplorePage,
  * DatasetDetailPage, and DatasetSlideOver require minimal changes.
- *
- * NOTE: Fields that exist only in the mock (attributes, files, lineage, tags,
- * contact, usage_stats) are filled with sensible defaults when the API does
- * not return them. This is intentional for Sprint 9.3 — full schema alignment
- * is Sprint 9.4 work.
  */
 import { apiClient } from './client';
+import type {
+  DatasetAttribute,
+  DatasetContact,
+  DatasetFile,
+  DatasetLineage,
+} from '../mocks/datasets';
 import type { DatasetRecord } from '../mocks/datasets';
 
 /* ─── Backend response shapes ─────────────────────────────────────────── */
@@ -54,7 +59,7 @@ export interface ApiDatasetListItem {
   bbox?: [number, number, number, number];
 }
 
-/** Detail shape adds metadata + dataQuality. */
+/** Detail shape adds metadata + dataQuality + Sprint 9.4 rich fields. */
 export interface ApiDatasetDetail extends ApiDatasetListItem {
   metadata?: {
     crs?: string;
@@ -74,6 +79,12 @@ export interface ApiDatasetDetail extends ApiDatasetListItem {
   organization?: { id: string; name: string } | null;
   surveyYear?: number | null;
   publishedAt?: string | null;
+  // Sprint 9.4: rich fields from backend metadata JSON
+  attributes?: DatasetAttribute[];
+  lineage?: DatasetLineage;
+  files?: DatasetFile[];
+  tags?: string[];
+  contact?: DatasetContact;
 }
 
 export interface ApiListDatasetsResponse {
@@ -243,12 +254,12 @@ function adaptApiDataset(api: ApiDatasetListItem | ApiDatasetDetail): DatasetRec
       currency: toRelativeLabel(api.updatedAt),
     },
 
-    // ── Detail-only fields — defaults for Sprint 9.3 ──
-    attributes: [],
-    lineage: { upstream: [], downstream: [] },
-    files: [],
-    tags: [],
-    contact: {
+    // ── Detail-only fields — Sprint 9.4: consume real values from backend ──
+    attributes: detail.attributes ?? [],
+    lineage: detail.lineage ?? { upstream: [], downstream: [] },
+    files: detail.files ?? [],
+    tags: detail.tags ?? [],
+    contact: detail.contact ?? {
       name: detail.uploader?.fullName ?? detail.organization?.name ?? api.provider.name,
       email: detail.uploader?.email ?? `data@${api.provider.name.toLowerCase().replace(/\s+/g, '')}.co.id`,
       organization: detail.organization?.name ?? api.provider.name,

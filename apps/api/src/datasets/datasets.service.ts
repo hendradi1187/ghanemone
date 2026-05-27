@@ -21,6 +21,10 @@ import type { ListDatasetsDto } from './dto/list-datasets.dto';
 import type { ApproveDatasetDto, RejectDatasetDto } from './dto/approve-dataset.dto';
 import type {
   CompactDatasetResponseDto,
+  DatasetAttributeDto,
+  DatasetContactDto,
+  DatasetFileDto,
+  DatasetLineageDto,
   DetailDatasetResponseDto,
   DownloadResponseDto,
   PaginatedDatasetsResponseDto,
@@ -667,6 +671,44 @@ export class DatasetsService {
   }): DetailDatasetResponseDto {
     const compact = this.toCompactDto(dataset);
 
+    // Extract Sprint 9.4 rich fields from the metadata JSON column.
+    // Use typed casts with safe defaults so missing / legacy records still work.
+    const meta = (dataset.metadata ?? {}) as Record<string, unknown>;
+
+    const attributes = Array.isArray(meta.attributes)
+      ? (meta.attributes as DatasetAttributeDto[])
+      : [];
+
+    const rawLineage = meta.lineage as Record<string, unknown> | undefined;
+    const lineage: DatasetLineageDto =
+      rawLineage != null &&
+      Array.isArray(rawLineage.upstream) &&
+      Array.isArray(rawLineage.downstream)
+        ? {
+            upstream: rawLineage.upstream as import('./dto/dataset-response.dto').LineageItemDto[],
+            downstream: rawLineage.downstream as import('./dto/dataset-response.dto').LineageItemDto[],
+          }
+        : { upstream: [], downstream: [] };
+
+    const files = Array.isArray(meta.files)
+      ? (meta.files as DatasetFileDto[])
+      : [];
+
+    const tags = Array.isArray(meta.tags) ? (meta.tags as string[]) : [];
+
+    const rawContact = meta.contact as Record<string, unknown> | undefined;
+    const contact: DatasetContactDto =
+      rawContact != null &&
+      typeof rawContact.name === 'string' &&
+      typeof rawContact.email === 'string' &&
+      typeof rawContact.organization === 'string'
+        ? {
+            name: rawContact.name,
+            email: rawContact.email,
+            organization: rawContact.organization,
+          }
+        : { name: '', email: '', organization: '' };
+
     return {
       ...compact,
       metadata: dataset.metadata as Record<string, unknown> | null,
@@ -684,6 +726,12 @@ export class DatasetsService {
         : null,
       surveyYear: dataset.surveyYear,
       publishedAt: dataset.publishedAt?.toISOString() ?? null,
+      // Sprint 9.4
+      attributes,
+      lineage,
+      files,
+      tags,
+      contact,
     };
   }
 }
