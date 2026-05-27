@@ -22,6 +22,12 @@ import { WellsModule } from './wells/wells.module';
 import { PipelinesModule } from './pipelines/pipelines.module';
 import { FacilitiesModule } from './facilities/facilities.module';
 
+// ── Sprint 9.5 — workspace + monitoring + analytics ──────────────────────────
+import { ProjectsModule } from './projects/projects.module';
+import { TasksModule } from './tasks/tasks.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
+import { StatsModule } from './stats/stats.module';
+
 /**
  * Root application module.
  *
@@ -70,6 +76,13 @@ import { FacilitiesModule } from './facilities/facilities.module';
     PipelinesModule,    // /api/v1/pipelines — Pipeline CRUD
     FacilitiesModule,   // /api/v1/facilities — Facility CRUD
     // ── END gis-agent ─────────────────────────────────────────────────────────
+
+    // ── Sprint 9.5 — workspace + monitoring + analytics ──────────────────────
+    ProjectsModule,     // /api/v1/projects — project CRUD
+    TasksModule,        // /api/v1/projects/:id/tasks + /api/v1/tasks/:id — Kanban tasks
+    MonitoringModule,   // /api/v1/monitoring — pipeline runs + alerts
+    StatsModule,        // /api/v1/stats — aggregation endpoints
+    // ── END Sprint 9.5 ───────────────────────────────────────────────────────
   ],
   controllers: [],
   providers: [

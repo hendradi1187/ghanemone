@@ -60,6 +60,10 @@ model User {
   auditLogs      AuditLog[]
   // §GIS back-relations
   uploadedDatasets Dataset[]  @relation("DatasetUploader")
+  // §Sprint 9.5 back-relations
+  ownedProjects  Project[]    @relation("ProjectOwner")
+  assignedTasks  Task[]       @relation("TaskAssignee")
+  acknowledgedAlerts Alert[]  @relation("AlertAck")
   status         UserStatus   @default(ACTIVE)
   lastLoginAt    DateTime?    @map("last_login_at")
   createdAt      DateTime     @default(now()) @map("created_at")
@@ -79,6 +83,9 @@ model Organization {
   users     User[]
   // §GIS back-relations
   datasets  Dataset[]        @relation("DatasetOrganization")
+  // §Sprint 9.5 back-relations
+  projects  Project[]        @relation("ProjectOrg")
+  pipelineRuns PipelineRun[] @relation("PipelineRunOrg")
   createdAt DateTime         @default(now()) @map("created_at")
   updatedAt DateTime         @updatedAt @map("updated_at")
 
@@ -346,6 +353,8 @@ model Dataset {
   surveyYear       Int?             @map("survey_year")
   downloadCount    Int              @default(0) @map("download_count")
   viewCount        Int              @default(0) @map("view_count")
+  // §Sprint 9.5 back-relations
+  pipelineRuns     PipelineRun[]
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
   publishedAt      DateTime?        @map("published_at")
@@ -412,4 +421,140 @@ model SeismicCoverage {
   @@index([surveyType])
   @@index([operator])
   @@map("seismic_coverages")
+}
+
+// =============================================================================
+// §Sprint 9.5 — Workspace (Projects + Tasks)
+// =============================================================================
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MED
+  HIGH
+  URGENT
+}
+
+model Project {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  slug           String        @unique
+  description    String?
+  status         ProjectStatus @default(ACTIVE)
+  color          String?       // hex code for visual identifier
+  ownerId        String        @map("owner_id") @db.Uuid
+  owner          User          @relation("ProjectOwner", fields: [ownerId], references: [id])
+  organizationId String        @map("organization_id") @db.Uuid
+  organization   Organization  @relation("ProjectOrg", fields: [organizationId], references: [id])
+  tasks          Task[]
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@index([ownerId])
+  @@index([organizationId])
+  @@index([status])
+  @@map("projects")
+}
+
+model Task {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String       @map("project_id") @db.Uuid
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MED)
+  assigneeId  String?      @map("assignee_id") @db.Uuid
+  assignee    User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  dueDate     DateTime?    @map("due_date")
+  order       Int          @default(0)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
+  @@map("tasks")
+}
+
+// =============================================================================
+// §Sprint 9.5 — Monitoring (PipelineRuns + Alerts)
+// =============================================================================
+
+enum MonitoringPipelineType {
+  INGESTION
+  VALIDATION
+  TRANSFORM
+  EXPORT
+  INDEXING
+}
+
+enum PipelineRunStatus {
+  QUEUED
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+model PipelineRun {
+  id             String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  type           MonitoringPipelineType
+  status         PipelineRunStatus
+  startedAt      DateTime              @map("started_at")
+  finishedAt     DateTime?             @map("finished_at")
+  durationMs     Int?                  @map("duration_ms")
+  recordCount    Int?                  @map("record_count")
+  errorMessage   String?               @map("error_message")
+  datasetId      String?               @map("dataset_id") @db.Uuid
+  dataset        Dataset?              @relation(fields: [datasetId], references: [id])
+  organizationId String                @map("organization_id") @db.Uuid
+  organization   Organization          @relation("PipelineRunOrg", fields: [organizationId], references: [id])
+  metadata       Json?
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@index([datasetId])
+  @@index([status])
+  @@index([startedAt])
+  @@map("pipeline_runs")
+}
+
+model Alert {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  severity         AlertSeverity
+  title            String
+  message          String
+  source           String        // e.g. "PipelineRun", "ValidationService", "AuthService"
+  sourceId         String?       @map("source_id")    // ID of source entity
+  acknowledged     Boolean       @default(false)
+  acknowledgedAt   DateTime?     @map("acknowledged_at")
+  acknowledgedById String?       @map("acknowledged_by_id") @db.Uuid
+  acknowledgedBy   User?         @relation("AlertAck", fields: [acknowledgedById], references: [id])
+  metadata         Json?
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  @@index([acknowledged])
+  @@index([severity])
+  @@index([createdAt])
+  @@map("alerts")
 }
