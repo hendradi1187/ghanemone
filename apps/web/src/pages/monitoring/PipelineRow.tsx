@@ -5,53 +5,34 @@
  * status: green=ok, blue=running, amber=warning/queued, red=failed,
  * grey=cancelled.
  */
-import { Icon } from '@ghanem/ui';
+import { Icon, StatusChip, type StatusChipStatus } from '@ghanem/ui';
 import type { Pipeline, PipelineStatus } from '../../mocks/monitoring';
 
-interface StatusConfig {
-  label: string;
-  pillClass: string;
-  barClass: string;
-  textClass: string;
-  dot: string;
-}
+/** StatusChip status mapping — PipelineStatus → StatusChipStatus (direct pass-through, all match). */
+const PIPELINE_TO_CHIP_STATUS: Record<PipelineStatus, StatusChipStatus> = {
+  queued: 'queued',
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+};
 
-const STATUS_CONFIG: Record<PipelineStatus, StatusConfig> = {
-  queued: {
-    label: 'Queued',
-    pillClass: 'bg-surface-3 text-ink-3 border-line',
-    barClass: 'bg-ink-5',
-    textClass: 'text-ink-4',
-    dot: 'bg-ink-4',
-  },
-  running: {
-    label: 'Running',
-    pillClass: 'bg-blue-50 text-blue-600 border-blue-100',
-    barClass: 'bg-blue-500',
-    textClass: 'text-blue-600',
-    dot: 'bg-blue-500',
-  },
-  completed: {
-    label: 'Completed',
-    pillClass: 'bg-green-50 text-green-700 border-green-200',
-    barClass: 'bg-green-500',
-    textClass: 'text-green-700',
-    dot: 'bg-green-500',
-  },
-  failed: {
-    label: 'Failed',
-    pillClass: 'bg-red-100 text-red-500 border-red-100',
-    barClass: 'bg-red-500',
-    textClass: 'text-red-500',
-    dot: 'bg-red-500',
-  },
-  cancelled: {
-    label: 'Cancelled',
-    pillClass: 'bg-surface-3 text-ink-4 border-line',
-    barClass: 'bg-ink-5',
-    textClass: 'text-ink-4',
-    dot: 'bg-ink-4',
-  },
+/** Bar color per pipeline status (still needed for progress bar). */
+const STATUS_BAR: Record<PipelineStatus, string> = {
+  queued: 'bg-ink-5',
+  running: 'bg-blue-500',
+  completed: 'bg-green-500',
+  failed: 'bg-red-500',
+  cancelled: 'bg-ink-5',
+};
+
+/** Label display per pipeline status. */
+const STATUS_LABEL: Record<PipelineStatus, string> = {
+  queued: 'Queued',
+  running: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
 };
 
 function formatDuration(sec: number): string {
@@ -71,7 +52,9 @@ export interface PipelineRowProps {
 }
 
 export function PipelineRow({ pipeline, onClick }: PipelineRowProps): JSX.Element {
-  const cfg = STATUS_CONFIG[pipeline.status];
+  const chipStatus = PIPELINE_TO_CHIP_STATUS[pipeline.status];
+  const barClass = STATUS_BAR[pipeline.status];
+  const statusLabel = STATUS_LABEL[pipeline.status];
   const isRunning = pipeline.status === 'running';
 
   return (
@@ -87,19 +70,7 @@ export function PipelineRow({ pipeline, onClick }: PipelineRowProps): JSX.Elemen
         <div className="text-[11px] text-ink-4 mt-0.5">{pipeline.provider}</div>
       </td>
       <td className="px-3 py-3 align-top">
-        <span
-          className={[
-            'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-pill border',
-            'text-[10.5px] font-semibold uppercase tracking-widest leading-none',
-            cfg.pillClass,
-          ].join(' ')}
-        >
-          <span
-            aria-hidden="true"
-            className={['inline-block w-1.5 h-1.5 rounded-full', cfg.dot].join(' ')}
-          />
-          {cfg.label}
-        </span>
+        <StatusChip status={chipStatus}>{statusLabel}</StatusChip>
       </td>
       <td className="px-3 py-3 align-top">
         <span className="num font-mono text-xs text-ink-2">
@@ -120,7 +91,7 @@ export function PipelineRow({ pipeline, onClick }: PipelineRowProps): JSX.Elemen
             aria-label={`Progress ${pipeline.name}`}
           >
             <div
-              className={['h-full transition-all duration-500 ease-out', cfg.barClass].join(' ')}
+              className={['h-full transition-all duration-500 ease-out', barClass].join(' ')}
               style={{ width: `${pipeline.progress}%` }}
             />
           </div>

@@ -24,7 +24,7 @@ interface StepDef {
   label: string;
 }
 
-const STEPS: ReadonlyArray<StepDef> = [
+const STEPS: readonly StepDef[] = [
   { id: 1, label: 'File' },
   { id: 2, label: 'Metadata' },
   { id: 3, label: 'Schema' },

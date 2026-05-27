@@ -38,6 +38,7 @@ import {
   type SubmitHandler,
 } from '@ghanem/ui';
 import { useAuth } from '../hooks/use-auth';
+import { useAuthStore } from '../stores/auth-store';
 
 /** Shape state yang AuthGuard kirim saat redirect. */
 interface LoginLocationState {
@@ -62,7 +63,10 @@ export function LoginPage(): JSX.Element {
   // Pre-empt: user sudah login → langsung redirect.
   // Pakai conditional element instead of useEffect untuk avoid flicker.
   const stateFrom = (location.state as LoginLocationState | null)?.from;
-  const fromPath = stateFrom ? `${stateFrom.pathname}${stateFrom.search ?? ''}` : '/';
+  // Sprint 2C: default redirect ke `/dashboard` (bukan `/`) karena `/` sekarang
+  // adalah HomePage publik. Jika user datang dari route tertentu (state.from),
+  // redirect kembali ke sana.
+  const fromPath = stateFrom ? `${stateFrom.pathname}${stateFrom.search ?? ''}` : '/dashboard';
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -91,16 +95,17 @@ export function LoginPage(): JSX.Element {
     setSubmitting(true);
     try {
       await login(values.email, values.password);
-      toast.success('Login berhasil', {
-        description: `Selamat datang, ${values.email}`,
+      // Read user from store after login completes.
+      const user = useAuthStore.getState().user;
+      const displayName = user?.fullName ?? user?.email ?? values.email;
+      toast.success(`Selamat datang, ${displayName}`, {
+        description: 'Login berhasil',
       });
-      // navigate akan triggered by useEffect once store updated; tapi panggil
-      // di sini supaya UX instant.
       navigate(fromPath, { replace: true });
       form.reset();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login gagal — periksa kredensial';
-      toast.error(message);
+      toast.error('Login gagal', { description: message });
     } finally {
       setSubmitting(false);
     }
@@ -199,12 +204,20 @@ export function LoginPage(): JSX.Element {
         </FormProvider>
 
         <div className="mt-6 pt-4 border-t border-line text-xs text-ink-4">
-          <p className="font-semibold text-ink-3 mb-1">Demo kredensial (Phase 8 mock):</p>
+          <p className="font-semibold text-ink-3 mb-1">Demo kredensial (Sprint 9.3):</p>
           <ul className="list-disc pl-4 space-y-0.5">
             <li>
-              Email apa saja yang valid (mis. <b>citra@skkmigas.go.id</b>)
+              <b>Admin:</b> admin@ghanemtech.co.id
             </li>
-            <li>Password minimal 8 karakter (mis. <b>password123</b>)</li>
+            <li>
+              <b>Regulator:</b> regulator@skkmigas.go.id
+            </li>
+            <li>
+              <b>Operator:</b> operator@phe-onwj.co.id
+            </li>
+            <li>
+              Semua password: <b>Demo123!</b>
+            </li>
           </ul>
         </div>
 
@@ -232,7 +245,7 @@ function ForgotPasswordDialog({ open, onOpenChange }: ForgotPasswordDialogProps)
     setSubmitting(true);
     try {
       await mockApiCall(600);
-      // eslint-disable-next-line no-console
+       
       console.info('[ForgotPassword demo] submit', values);
       toast.info('Tautan reset password telah dikirim ke email Anda (mock).', {
         description: values.email,

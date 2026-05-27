@@ -35,7 +35,7 @@ export interface AppRecord {
   /** Background gradient untuk icon tile — 2-color CSS gradient. */
   gradient: { from: string; to: string };
   /** Mock screenshot placeholders — colored gradient blocks (no external URL). */
-  screenshots: Array<{ id: string; from: string; to: string; caption: string }>;
+  screenshots: { id: string; from: string; to: string; caption: string }[];
   /** Permissions yang dibutuhkan (mirror OAuth scopes). */
   permissions: string[];
   /** Pricing tier. */
@@ -54,7 +54,7 @@ export interface AppRecord {
   features: string[];
 }
 
-const APPS_RAW: ReadonlyArray<AppRecord> = [
+const APPS_RAW: readonly AppRecord[] = [
   {
     id: 'seismic-viewer-pro',
     name: 'Seismic Viewer Pro',
@@ -535,11 +535,11 @@ const APPS_RAW: ReadonlyArray<AppRecord> = [
 ];
 
 /** Frozen catalog. */
-export const APPS_CATALOG: ReadonlyArray<AppRecord> = Object.freeze(APPS_RAW);
+export const APPS_CATALOG: readonly AppRecord[] = Object.freeze(APPS_RAW);
 
 /* ─── Categories metadata (untuk filter chips) ─────────────────────────── */
 
-export const APP_CATEGORIES: ReadonlyArray<{ id: AppCategory; label: string }> = [
+export const APP_CATEGORIES: readonly { id: AppCategory; label: string }[] = [
   { id: 'visualization', label: 'Visualisasi' },
   { id: 'analysis', label: 'Analisis' },
   { id: 'integration', label: 'Integrasi' },

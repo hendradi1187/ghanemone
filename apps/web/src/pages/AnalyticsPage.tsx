@@ -50,8 +50,8 @@ import { SavedQueryList } from './analytics/SavedQueryList';
 import { QueryBuilder } from './analytics/QueryBuilder';
 import { ChartPreview, exportResultAsCsv } from './analytics/ChartPreview';
 
-const VALID_CHART_TYPES: ReadonlyArray<AnalyticsChartType> = ['line', 'bar', 'pie', 'donut'];
-const VALID_AGGREGATIONS: ReadonlyArray<AnalyticsAggregation> = ['count', 'sum', 'avg', 'min', 'max'];
+const VALID_CHART_TYPES: readonly AnalyticsChartType[] = ['line', 'bar', 'pie', 'donut'];
+const VALID_AGGREGATIONS: readonly AnalyticsAggregation[] = ['count', 'sum', 'avg', 'min', 'max'];
 
 function parseChartType(raw: string | null): AnalyticsChartType | undefined {
   if (!raw) return undefined;

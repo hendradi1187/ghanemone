@@ -125,9 +125,10 @@ export function UploadDropZone(): JSX.Element {
       const next = selectedFiles.filter((f) => f.id !== id);
       setSelectedFiles(next);
       setPerFile((prev) => {
-        const copy = { ...prev };
-        delete copy[id];
-        return copy;
+        // Construct a new object excluding the removed file's entry.
+        const { [id]: _omitted, ...rest } = prev;
+        void _omitted;
+        return rest;
       });
       setAnnouncement('File dihapus.');
     },

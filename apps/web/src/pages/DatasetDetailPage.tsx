@@ -29,6 +29,7 @@ import {
   Icon,
   StatCard,
   Stack,
+  StatusChip,
   Tabs,
   toast,
 } from '@ghanem/ui';
@@ -37,10 +38,11 @@ import type { DatasetRecord } from '../mocks/datasets';
 import { LineageGraph } from './dataset-detail/LineageGraph';
 import { BboxPreview } from './dataset-detail/BboxPreview';
 import { ApiSnippets } from './dataset-detail/ApiSnippets';
+import { DataQualitySection } from '../components/dataset/DataQualitySection';
 
 type DetailTab = 'overview' | 'attributes' | 'lineage' | 'api' | 'files' | 'map';
 
-const VALID_TABS: ReadonlyArray<DetailTab> = [
+const VALID_TABS: readonly DetailTab[] = [
   'overview',
   'attributes',
   'lineage',
@@ -143,6 +145,7 @@ interface DetailContentProps {
 function DetailContent({ dataset, related, tab, onTabChange }: DetailContentProps): JSX.Element {
   const navigate = useNavigate();
   const [bookmarked, setBookmarked] = useState(false);
+  const [addedToMap, setAddedToMap] = useState(false);
 
   const isInternal = dataset.status === 'internal' || dataset.status === 'confidential';
 
@@ -171,6 +174,13 @@ function DetailContent({ dataset, related, tab, onTabChange }: DetailContentProp
       description: dataset.title,
     });
   }, [bookmarked, dataset.title]);
+
+  const handleAddToMap = useCallback(() => {
+    setAddedToMap(true);
+    toast.success('Ditambahkan ke peta', {
+      description: `${dataset.title} — buka Map View untuk melihat.`,
+    });
+  }, [dataset.title]);
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto">
@@ -224,7 +234,9 @@ function DetailContent({ dataset, related, tab, onTabChange }: DetailContentProp
                   Verified
                 </span>
               ) : null}
-              {dataset.status ? <StatusBadge status={dataset.status} /> : null}
+              {dataset.status ? (
+                <StatusChip status={dataset.status}>{dataset.status.charAt(0).toUpperCase() + dataset.status.slice(1)}</StatusChip>
+              ) : null}
               {dataset.year !== undefined ? (
                 <span className="text-[11px] text-ink-4 font-medium num">{dataset.year}</span>
               ) : null}
@@ -282,6 +294,23 @@ function DetailContent({ dataset, related, tab, onTabChange }: DetailContentProp
               ].join(' ')}
             >
               <Icon name="download" size={13} aria-hidden /> Unduh
+            </button>
+            <button
+              type="button"
+              onClick={handleAddToMap}
+              aria-pressed={addedToMap}
+              className={[
+                'inline-flex items-center gap-1.5 px-3 py-2 rounded-2',
+                addedToMap
+                  ? 'bg-green-100 text-green-700 border border-green-300 font-semibold text-sm'
+                  : 'bg-surface border border-line text-ink-2 font-semibold text-sm',
+                'hover:bg-green-50 hover:border-green-300 hover:text-green-700',
+                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500',
+                'transition-colors duration-hf',
+              ].join(' ')}
+            >
+              <Icon name="pin" size={13} aria-hidden />
+              {addedToMap ? 'Di Peta' : 'Add to Map'}
             </button>
             {isInternal ? (
               <button
@@ -383,31 +412,20 @@ const iconBtnClasses = [
   'transition-colors duration-hf',
 ].join(' ');
 
-function StatusBadge({ status }: { status: 'public' | 'internal' | 'confidential' }): JSX.Element {
-  const cfg = {
-    public: { label: 'Public', cls: 'bg-green-50 text-green-700 border-green-200' },
-    internal: { label: 'Internal', cls: 'bg-amber-100 text-amber-700 border-amber-100' },
-    confidential: { label: 'Confidential', cls: 'bg-red-100 text-red-500 border-red-100' },
-  }[status];
-  return (
-    <span
-      className={[
-        'inline-flex items-center px-1.5 py-0.5 rounded-1 border',
-        'text-[10px] font-semibold uppercase tracking-widest leading-none',
-        cfg.cls,
-      ].join(' ')}
-    >
-      {cfg.label}
-    </span>
-  );
-}
-
 /* ─── Tab: Overview ───────────────────────────────────────────────────── */
 
 function OverviewTab({ dataset }: { dataset: DatasetRecord }): JSX.Element {
   const { metadata, usage_stats: usage, tags } = dataset;
   return (
     <Stack direction="col" gap="5">
+      {/* Data Quality */}
+      <section
+        aria-labelledby="overview-dq"
+        className="bg-surface border border-line rounded-3 p-4"
+      >
+        <DataQualitySection dataQuality={dataset.dataQuality} variant="full" />
+      </section>
+
       {/* Stats */}
       <section aria-labelledby="overview-usage">
         <h2 id="overview-usage" className="font-display font-semibold text-h3 text-ink m-0 mb-3">

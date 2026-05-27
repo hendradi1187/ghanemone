@@ -14,6 +14,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Badge,
+  type BadgeVariant,
   Button,
   Checkbox,
   EmptyState,
@@ -32,13 +34,13 @@ import { BulkActionDialog } from './BulkActionDialog';
 
 type SortMode = 'newest' | 'oldest' | 'risk';
 
-const SORT_OPTIONS: ReadonlyArray<{ value: SortMode; label: string }> = [
+const SORT_OPTIONS: readonly { value: SortMode; label: string }[] = [
   { value: 'newest', label: 'Terbaru' },
   { value: 'oldest', label: 'Terlama' },
   { value: 'risk', label: 'Prioritas risiko' },
 ];
 
-const ALL_RISK_FLAGS: ReadonlyArray<RiskFlag> = [
+const ALL_RISK_FLAGS: readonly RiskFlag[] = [
   'contains-pii',
   'large-file',
   'sensitive-area',
@@ -66,10 +68,10 @@ function formatRelative(iso: string): string {
   return `${Math.floor(ms / 86_400_000)} hari lalu`;
 }
 
-const RISK_CHIP_TONE: Record<'red' | 'amber' | 'blue', string> = {
-  red: 'bg-red-100 text-red-500 border-red-100',
-  amber: 'bg-amber-100 text-amber-700 border-amber-100',
-  blue: 'bg-blue-50 text-blue-600 border-blue-100',
+const RISK_BADGE_VARIANT: Record<'red' | 'amber' | 'blue', BadgeVariant> = {
+  red: 'danger',
+  amber: 'warning',
+  blue: 'info',
 };
 
 export function ApprovalQueue(): JSX.Element {
@@ -264,15 +266,16 @@ export function ApprovalQueue(): JSX.Element {
                 onClick={() => toggleRiskFilter(flag)}
                 aria-pressed={active}
                 className={[
-                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-pill text-[11px] font-semibold border',
-                  'transition-colors duration-hf',
-                  active
-                    ? RISK_CHIP_TONE[meta.tone]
-                    : 'bg-surface text-ink-3 border-line hover:bg-surface-2',
+                  'rounded-pill transition-colors duration-hf',
                   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500',
                 ].join(' ')}
               >
-                {meta.label}
+                <Badge
+                  variant={active ? RISK_BADGE_VARIANT[meta.tone] : 'neutral'}
+                  size="sm"
+                >
+                  {meta.label}
+                </Badge>
               </button>
             );
           })}
@@ -457,16 +460,13 @@ export function ApprovalQueue(): JSX.Element {
                           item.riskFlags.map((flag) => {
                             const meta = RISK_FLAG_META[flag];
                             return (
-                              <span
+                              <Badge
                                 key={flag}
-                                className={[
-                                  'inline-flex items-center px-1.5 py-0.5 rounded-1 border',
-                                  'text-[10px] font-semibold uppercase tracking-widest leading-none',
-                                  RISK_CHIP_TONE[meta.tone],
-                                ].join(' ')}
+                                variant={RISK_BADGE_VARIANT[meta.tone]}
+                                size="sm"
                               >
                                 {meta.label}
-                              </span>
+                              </Badge>
                             );
                           })
                         )}

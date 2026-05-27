@@ -56,7 +56,7 @@ export function SeismicWellDetails({
   onClose,
   well = PLACEHOLDER_WELL,
 }: SeismicWellDetailsProps): ReactElement {
-  const rows: Array<[string, string]> = [
+  const rows: [string, string][] = [
     ['Well Type', well.type],
     ['Operator', well.operator],
     ['Spud Date', well.spudDate],

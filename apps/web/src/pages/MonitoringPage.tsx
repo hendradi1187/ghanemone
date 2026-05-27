@@ -30,6 +30,7 @@ import {
   Icon,
   LineChartCard,
   StatCard,
+  StatusChip,
   Tabs,
   toast,
 } from '@ghanem/ui';
@@ -55,9 +56,9 @@ import { AlertCard } from './monitoring/AlertCard';
 import { LiveIndicator } from './monitoring/LiveIndicator';
 
 type MonTab = 'pipelines' | 'alerts' | 'jobs' | 'health';
-const VALID_TABS: ReadonlyArray<MonTab> = ['pipelines', 'alerts', 'jobs', 'health'];
+const VALID_TABS: readonly MonTab[] = ['pipelines', 'alerts', 'jobs', 'health'];
 
-const STATUS_FILTERS: ReadonlyArray<{ value: PipelineStatus | 'all'; label: string }> = [
+const STATUS_FILTERS: readonly { value: PipelineStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Semua' },
   { value: 'running', label: 'Running' },
   { value: 'queued', label: 'Queued' },
@@ -91,25 +92,7 @@ export function MonitoringPage(): JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
-  // ── Role guard ──────────────────────────────────────────────────────
-  const allowed = user?.role === 'regulator' || user?.role === 'analyst' || user?.role === 'admin';
-  if (!allowed) {
-    return (
-      <div className="px-6 py-10 max-w-2xl mx-auto">
-        <EmptyState
-          variant="error"
-          title="Akses ditolak"
-          description={
-            <>
-              Halaman <b>Monitoring</b> hanya tersedia untuk Regulator / Analyst.
-              Akun Anda terdaftar sebagai <i>{user?.role ?? 'tamu'}</i>.
-            </>
-          }
-        />
-      </div>
-    );
-  }
-
+  // ── URL state ────────────────────────────────────────────────────────
   const tab = parseTab(searchParams.get('tab'));
   const statusFilter = parseStatusFilter(searchParams.get('status'));
 
@@ -265,6 +248,25 @@ export function MonitoringPage(): JSX.Element {
     setLastUpdate(new Date());
     toast.success('Data dimuat ulang');
   }, [queryClient]);
+
+  // ── Role guard — rendered AFTER all hooks ────────────────────────────
+  const allowed = user?.role === 'regulator' || user?.role === 'analyst' || user?.role === 'admin';
+  if (!allowed) {
+    return (
+      <div className="px-6 py-10 max-w-2xl mx-auto">
+        <EmptyState
+          variant="error"
+          title="Akses ditolak"
+          description={
+            <>
+              Halaman <b>Monitoring</b> hanya tersedia untuk Regulator / Analyst.
+              Akun Anda terdaftar sebagai <i>{user?.role ?? 'tamu'}</i>.
+            </>
+          }
+        />
+      </div>
+    );
+  }
 
   // ── Health KPI ─────────────────────────────────────────────────────
   const health = healthQuery.data;
@@ -624,17 +626,9 @@ function JobsLogTab({ jobs, loading }: JobsLogTabProps): JSX.Element {
             {visible.map((j) => (
               <tr key={j.id} className="border-b border-line last:border-b-0 hover:bg-surface-2">
                 <td className="px-3 py-2">
-                  <span
-                    className={[
-                      'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-1 text-[10.5px] font-semibold uppercase tracking-widest leading-none border',
-                      j.status === 'success'
-                        ? 'bg-green-50 text-green-700 border-green-200'
-                        : 'bg-red-100 text-red-500 border-red-100',
-                    ].join(' ')}
-                  >
-                    <Icon name={j.status === 'success' ? 'check' : 'warn'} size={10} aria-hidden />
+                  <StatusChip status={j.status === 'success' ? 'completed' : 'failed'}>
                     {j.status === 'success' ? 'Sukses' : 'Gagal'}
-                  </span>
+                  </StatusChip>
                 </td>
                 <td className="px-3 py-2">
                   <div className="font-semibold text-sm text-ink">{j.pipelineName}</div>

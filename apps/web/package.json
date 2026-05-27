@@ -24,6 +24,7 @@
     "@ghanem/types": "*",
     "@ghanem/ui": "*",
     "@tanstack/react-query": "^5.51.23",
+    "@types/geojson": "^7946.0.16",
     "leaflet": "^1.9.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

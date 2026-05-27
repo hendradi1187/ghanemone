@@ -32,7 +32,7 @@ import type {
   AnalyticsQuery,
 } from '../../mocks/analytics';
 
-const AGGREGATIONS: ReadonlyArray<{ value: AnalyticsAggregation; label: string }> = [
+const AGGREGATIONS: readonly { value: AnalyticsAggregation; label: string }[] = [
   { value: 'count', label: 'Count' },
   { value: 'sum', label: 'Sum' },
   { value: 'avg', label: 'Average' },
@@ -40,11 +40,11 @@ const AGGREGATIONS: ReadonlyArray<{ value: AnalyticsAggregation; label: string }
   { value: 'max', label: 'Max' },
 ];
 
-const CHART_TYPES: ReadonlyArray<{
+const CHART_TYPES: readonly {
   value: AnalyticsChartType;
   label: string;
   icon: IconName;
-}> = [
+}[] = [
   { value: 'line', label: 'Line', icon: 'activity' },
   { value: 'bar', label: 'Bar', icon: 'chart' },
   { value: 'pie', label: 'Pie', icon: 'pieChart' },
@@ -230,7 +230,7 @@ interface FieldSelectProps {
   onChange: (v: string) => void;
   disabled: boolean;
   placeholder: string;
-  options: ReadonlyArray<{ value: string; label: string }>;
+  options: readonly { value: string; label: string }[];
   hint?: string;
 }
 

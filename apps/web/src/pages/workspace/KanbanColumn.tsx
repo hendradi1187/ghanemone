@@ -16,8 +16,7 @@
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Icon } from '@ghanem/ui';
-import type { Task, TaskStatus } from '../../mocks/workspace';
-import { TASK_STATUS_META } from '../../mocks/workspace';
+import { TASK_STATUS_META, type Task, type TaskStatus } from '../../mocks/workspace';
 import { TaskCard } from './TaskCard';
 
 export interface KanbanColumnProps {

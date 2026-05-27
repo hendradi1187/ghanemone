@@ -8,7 +8,7 @@
 import type { AttributeRow } from '@ghanem/ui';
 
 /** Whitelist extension (lowercase, tanpa dot). */
-export const ALLOWED_EXTENSIONS: ReadonlyArray<string> = [
+export const ALLOWED_EXTENSIONS: readonly string[] = [
   'shp',
   'zip',
   'kml',
@@ -195,7 +195,7 @@ export interface UploadFormData {
   license: DatasetLicense;
   tags: string[];
   bbox: [number, number, number, number];
-  files: Array<{ name: string; size: number }>;
+  files: { name: string; size: number }[];
   attributes: AttributeRow[];
 }
 

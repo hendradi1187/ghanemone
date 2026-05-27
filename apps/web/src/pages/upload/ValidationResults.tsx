@@ -38,7 +38,7 @@ interface CheckDef {
   failMessages: string[];
 }
 
-const CHECKS: ReadonlyArray<CheckDef> = [
+const CHECKS: readonly CheckDef[] = [
   {
     key: 'topology',
     label: 'Topology check',
@@ -107,7 +107,7 @@ function severityIcon(severity: ValidationSeverity): {
   return { icon: 'x', bg: 'bg-red-100', fg: 'text-red-500', border: 'border-red-100' };
 }
 
-function pickRandom<T>(arr: ReadonlyArray<T>): T | undefined {
+function pickRandom<T>(arr: readonly T[]): T | undefined {
   if (arr.length === 0) return undefined;
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -121,16 +121,18 @@ async function runMockValidation(): Promise<ValidationCheckResult> {
   const oneWarning = !allPass && roll < 0.95;
   const oneFail = !allPass && !oneWarning;
 
+  // CHECKS has exactly 4 elements defined above — indices 0-3 always valid.
+  const [topologyCheck, schemaCheck, attributesCheck, integrityCheck] = CHECKS as [CheckDef, CheckDef, CheckDef, CheckDef];
   const result: ValidationCheckResult = {
     topology: 'pass',
     schema: 'pass',
     attributes: 'pass',
     integrity: 'pass',
     messages: {
-      topology: CHECKS[0]!.okMessage,
-      schema: CHECKS[1]!.okMessage,
-      attributes: CHECKS[2]!.okMessage,
-      integrity: CHECKS[3]!.okMessage,
+      topology: topologyCheck.okMessage,
+      schema: schemaCheck.okMessage,
+      attributes: attributesCheck.okMessage,
+      integrity: integrityCheck.okMessage,
     },
     perFile: [],
     ranAt: Date.now(),
@@ -138,7 +140,7 @@ async function runMockValidation(): Promise<ValidationCheckResult> {
 
   if (oneWarning || oneFail) {
     const targetIdx = Math.floor(Math.random() * CHECKS.length);
-    const target = CHECKS[targetIdx]!;
+    const target = CHECKS[targetIdx] ?? topologyCheck;
     const severity: ValidationSeverity = oneFail ? 'fail' : 'warning';
     const messages = oneFail ? target.failMessages : target.warnMessages;
     result[target.key] = severity;

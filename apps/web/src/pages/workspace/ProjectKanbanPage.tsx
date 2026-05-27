@@ -26,8 +26,7 @@ import {
   patchTaskStatus,
   updateTask,
 } from '../../api/workspace';
-import type { Task, TaskStatus } from '../../mocks/workspace';
-import { TASK_STATUS_META } from '../../mocks/workspace';
+import { TASK_STATUS_META, type Task, type TaskStatus } from '../../mocks/workspace';
 import { KanbanBoard } from './KanbanBoard';
 import { TaskDetailDialog } from './TaskDetailDialog';
 

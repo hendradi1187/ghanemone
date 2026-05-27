@@ -48,7 +48,7 @@ export interface Task {
 
 /* ─── Members catalog ──────────────────────────────────────────────────── */
 
-const MEMBERS: ReadonlyArray<ProjectMember> = [
+const MEMBERS: readonly ProjectMember[] = [
   { id: 'usr-andi', fullName: 'Andi Nugroho', initials: 'AN' },
   { id: 'usr-lina', fullName: 'Lina Marpaung', initials: 'LM' },
   { id: 'usr-budi', fullName: 'Budi Adi', initials: 'BA' },
@@ -59,18 +59,28 @@ const MEMBERS: ReadonlyArray<ProjectMember> = [
   { id: 'usr-hendra', fullName: 'Hendra Wijaya', initials: 'HW' },
 ];
 
-export const WORKSPACE_MEMBERS: ReadonlyArray<ProjectMember> = MEMBERS;
+export const WORKSPACE_MEMBERS: readonly ProjectMember[] = MEMBERS;
 
 /* ─── Projects ─────────────────────────────────────────────────────────── */
 
-const PROJECTS_RAW: ReadonlyArray<Project> = [
+// Named member references — MEMBERS array has exactly 8 elements (indices 0-7).
+const M0 = MEMBERS[0] as ProjectMember;
+const M1 = MEMBERS[1] as ProjectMember;
+const M2 = MEMBERS[2] as ProjectMember;
+const M3 = MEMBERS[3] as ProjectMember;
+const M4 = MEMBERS[4] as ProjectMember;
+const M5 = MEMBERS[5] as ProjectMember;
+const M6 = MEMBERS[6] as ProjectMember;
+const M7 = MEMBERS[7] as ProjectMember;
+
+const PROJECTS_RAW: readonly Project[] = [
   {
     id: 'proj-sumatera-scoping',
     name: 'Sumatera Block Scoping',
     description:
       'Memetakan potensi Wilayah Kerja baru di Sumatera Utara berbasis data seismic terkini + production history block tetangga.',
     ownerId: 'usr-andi',
-    members: [MEMBERS[0]!, MEMBERS[1]!, MEMBERS[2]!, MEMBERS[3]!],
+    members: [M0, M1, M2, M3],
     createdAt: '2026-03-15T08:00:00Z',
     color: '#2a5fb8',
     status: 'active',
@@ -81,7 +91,7 @@ const PROJECTS_RAW: ReadonlyArray<Project> = [
     description:
       'Review produksi bulanan Mahakam — identifikasi sumur dengan decline rate anomali dan rekomendasi workover.',
     ownerId: 'usr-lina',
-    members: [MEMBERS[1]!, MEMBERS[4]!, MEMBERS[6]!],
+    members: [M1, M4, M6],
     createdAt: '2026-04-02T09:00:00Z',
     color: '#1f8a4a',
     status: 'active',
@@ -92,7 +102,7 @@ const PROJECTS_RAW: ReadonlyArray<Project> = [
     description:
       'Review permit baru ONWJ untuk drilling 3 sumur appraisal Q3 2026. Termasuk environmental impact dan boundary check.',
     ownerId: 'usr-budi',
-    members: [MEMBERS[2]!, MEMBERS[5]!],
+    members: [M2, M5],
     createdAt: '2026-04-10T10:00:00Z',
     color: '#c2840d',
     status: 'active',
@@ -103,7 +113,7 @@ const PROJECTS_RAW: ReadonlyArray<Project> = [
     description:
       'Audit cadangan kuartal pertama 2026 sesuai PRMS standard. Mendukung reporting tahunan ke SKK Migas.',
     ownerId: 'usr-erina',
-    members: [MEMBERS[3]!, MEMBERS[5]!, MEMBERS[6]!, MEMBERS[7]!],
+    members: [M3, M5, M6, M7],
     createdAt: '2026-02-20T08:00:00Z',
     color: '#7a5cb8',
     status: 'archived',
@@ -114,20 +124,20 @@ const PROJECTS_RAW: ReadonlyArray<Project> = [
     description:
       'Inspection schedule + risk-based prioritization untuk pipeline nasional. Output: laporan triwulanan.',
     ownerId: 'usr-rio',
-    members: [MEMBERS[4]!, MEMBERS[7]!],
+    members: [M4, M7],
     createdAt: '2026-01-10T09:00:00Z',
     color: '#cf3a2a',
     status: 'active',
   },
 ];
 
-export const WORKSPACE_PROJECTS: ReadonlyArray<Project> = Object.freeze(PROJECTS_RAW);
+export const WORKSPACE_PROJECTS: readonly Project[] = Object.freeze(PROJECTS_RAW);
 
 /* ─── Tasks (deterministic generator) ──────────────────────────────────── */
 
 const STATUSES: TaskStatus[] = ['todo', 'in_progress', 'review', 'done'];
 
-const TASK_TEMPLATES: Record<string, Array<{ title: string; labels: string[] }>> = {
+const TASK_TEMPLATES: Record<string, { title: string; labels: string[] }[]> = {
   'proj-sumatera-scoping': [
     { title: 'Kumpulkan seismic survey Sumatera Utara 2023-2025', labels: ['seismic', 'data-collection'] },
     { title: 'Map well locations adjacent blocks', labels: ['gis'] },
@@ -216,10 +226,12 @@ function buildTasks(): Task[] {
   for (const project of PROJECTS_RAW) {
     const templates = TASK_TEMPLATES[project.id] ?? [];
     for (let i = 0; i < templates.length; i += 1) {
-      const t = templates[i]!;
+      const t = templates[i];
+      if (!t) continue;
       const statusIdx = (i + counter) % STATUSES.length;
       const memberIdx = i % project.members.length;
-      const assignee = project.members[memberIdx]!;
+      const assignee = project.members[memberIdx];
+      if (!assignee) continue;
       const dueOffsetDays = (i * 5) % 60;
       const due = new Date(2026, 4, 1 + dueOffsetDays); // Mei + offset
       const created = new Date(2026, 3, (i % 28) + 1);
@@ -228,7 +240,7 @@ function buildTasks(): Task[] {
         projectId: project.id,
         title: t.title,
         description: `Detail untuk: ${t.title}. Tambahkan deskripsi lebih lanjut sesuai progress.`,
-        status: STATUSES[statusIdx]!,
+        status: STATUSES[statusIdx] ?? 'todo',
         assigneeId: assignee.id,
         assigneeInitials: assignee.initials,
         labels: t.labels,
@@ -241,7 +253,7 @@ function buildTasks(): Task[] {
   return tasks;
 }
 
-export const WORKSPACE_TASKS_SEED: ReadonlyArray<Task> = Object.freeze(buildTasks());
+export const WORKSPACE_TASKS_SEED: readonly Task[] = Object.freeze(buildTasks());
 
 /* ─── Status metadata (untuk UI) ───────────────────────────────────────── */
 
@@ -252,4 +264,4 @@ export const TASK_STATUS_META: Record<TaskStatus, { label: string; color: string
   done: { label: 'Done', color: 'bg-green-50 text-green-700', accent: 'border-green-500' },
 };
 
-export const TASK_STATUSES: ReadonlyArray<TaskStatus> = ['todo', 'in_progress', 'review', 'done'];
+export const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'in_progress', 'review', 'done'];

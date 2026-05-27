@@ -14,8 +14,8 @@
  *   - Main content wrapped in `<main role="main">`
  *   - Skip-to-content link di awal (tab pertama)
  */
-import { useState, useMemo } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useState, useMemo, useCallback } from 'react';
+import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   DropdownMenu,
   Icon,
@@ -23,46 +23,30 @@ import {
   Sidebar,
   TopNav,
   toast,
-  type SidebarSection,
+  type SidebarBrowseItem,
+  type SidebarCategoryItem,
+  type SidebarProviderItem,
   type TopNavLink,
   type TopNavUser,
 } from '@ghanem/ui';
 import { useAuth } from '../hooks/use-auth';
+import { APP_SIDEBAR_SECTIONS, SIDEBAR_ITEM_ROUTES } from './sidebar-config';
 
-/** Definisi 7 top-level routes (lihat docs/component-map.md §1). */
+/**
+ * Definisi 7 top-level routes (lihat docs/component-map.md §1).
+ * Sprint 2C: DASHBOARD route diubah dari `/` ke `/dashboard` karena `/` sekarang
+ * adalah HomePage publik (landing page).
+ */
 const TOP_NAV_LINKS: TopNavLink[] = [
   { label: 'EXPLORE', route: '/explore' },
   { label: 'MAP', route: '/map' },
-  { label: 'DASHBOARD', route: '/' },
+  { label: 'DASHBOARD', route: '/dashboard' },
   { label: 'ANALYTICS', route: '/analytics' },
   { label: 'WORKSPACE', route: '/workspace' },
   { label: 'APPS', route: '/apps' },
   { label: 'MONITORING', route: '/monitoring' },
 ];
 
-/** Sidebar contoh untuk Phase 8.6 — content driven by props later per page. */
-const DEFAULT_SIDEBAR_SECTIONS: SidebarSection[] = [
-  {
-    title: 'Browse',
-    variant: 'browse',
-    items: [
-      { id: 'all', label: 'Semua Dataset', icon: 'database', count: 2452 },
-      { id: 'recent', label: 'Terkini', icon: 'clock', count: 245 },
-      { id: 'starred', label: 'Bintang', icon: 'star', count: 18 },
-      { id: 'shared', label: 'Dibagikan ke saya', icon: 'share', count: 7 },
-    ],
-  },
-  {
-    title: 'Kategori',
-    variant: 'category',
-    items: [
-      { id: 'cat-seismic', label: 'Seismic 2D/3D', color: '#2a5fb8' },
-      { id: 'cat-well', label: 'Well log', color: '#1f8a4a' },
-      { id: 'cat-prod', label: 'Production', color: '#c2840d' },
-      { id: 'cat-admin', label: 'Administrative', color: '#7a5cb8' },
-    ],
-  },
-];
 
 function deriveInitials(emailOrName: string): string {
   const parts = emailOrName.split(/[._@\-\s]/).filter(Boolean);
@@ -91,18 +75,71 @@ export function AppShell(): JSX.Element {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Tentukan active route — match prefix supaya `/datasets/wk-onwj` tetap
   // mengaktifkan tab "EXPLORE".
+  // Sprint 2C: `/dashboard` sekarang route utama dashboard (bukan `/`).
   const activeRoute = useMemo(() => {
     const path = location.pathname;
-    if (path === '/' || path.startsWith('/dashboard')) return '/';
+    if (path === '/dashboard' || path.startsWith('/dashboard')) return '/dashboard';
     const matched = TOP_NAV_LINKS.find(
-      (l) => l.route !== '/' && path.startsWith(l.route),
+      (l) => l.route !== '/dashboard' && path.startsWith(l.route),
     );
-    return matched?.route ?? '/';
+    return matched?.route ?? '/dashboard';
   }, [location.pathname]);
+
+  /**
+   * Tentukan active sidebar item berdasarkan path + search params.
+   * Prioritas: param match lebih spesifik dari path-only match.
+   */
+  const activeSidebarId = useMemo((): string => {
+    const path = location.pathname;
+    const categoryParam = searchParams.get('category');
+    const providerParam = searchParams.get('provider');
+    const typeParam = searchParams.get('type');
+
+    // Cek item yang paling spesifik dulu (param match)
+    for (const [id, route] of Object.entries(SIDEBAR_ITEM_ROUTES)) {
+      if (
+        route.path === path &&
+        route.param &&
+        route.value
+      ) {
+        if (route.param === 'category' && categoryParam === route.value) return id;
+        if (route.param === 'provider' && providerParam === route.value) return id;
+        if (route.param === 'type' && typeParam === route.value) return id;
+      }
+    }
+
+    // Fallback: match path saja (tanpa param)
+    for (const [id, route] of Object.entries(SIDEBAR_ITEM_ROUTES)) {
+      if (route.path === path && !route.param) return id;
+    }
+
+    // Default saat di /explore tanpa param
+    if (path === '/explore') return 'all-data';
+
+    return '';
+  }, [location.pathname, searchParams]);
+
+  /**
+   * Handle klik sidebar item — navigate ke route yang sesuai dari config.
+   * Digunakan oleh semua variant (browse, category, provider).
+   */
+  const handleSidebarItemClick = useCallback(
+    (item: SidebarBrowseItem | SidebarCategoryItem | SidebarProviderItem) => {
+      const route = SIDEBAR_ITEM_ROUTES[item.id];
+      if (!route) return;
+      if (route.param && route.value) {
+        navigate(`${route.path}?${route.param}=${encodeURIComponent(route.value)}`);
+      } else {
+        navigate(route.path);
+      }
+    },
+    [navigate],
+  );
 
   const topNavUser: TopNavUser | undefined = user
     ? {
@@ -113,7 +150,9 @@ export function AppShell(): JSX.Element {
     : undefined;
 
   const handleLogout = (): void => {
-    logout();
+    // logout() is async but we navigate immediately; server-side invalidation
+    // happens in the background (non-fatal if it fails).
+    void logout().catch(() => null);
     toast.success('Anda telah keluar', {
       description: 'Sesi diakhiri. Silakan login kembali untuk melanjutkan.',
     });
@@ -176,10 +215,10 @@ export function AppShell(): JSX.Element {
                   <DropdownMenu.Separator />
                 </>
               ) : null}
-              <DropdownMenu.Item onSelect={() => navigate('/')}>
+              <DropdownMenu.Item onSelect={() => navigate('/dashboard')}>
                 <Icon name="user" size={14} aria-hidden /> Profil
               </DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => navigate('/')}>
+              <DropdownMenu.Item onSelect={() => navigate('/dashboard')}>
                 <Icon name="settings" size={14} aria-hidden /> Pengaturan
               </DropdownMenu.Item>
               <DropdownMenu.Separator />
@@ -200,7 +239,11 @@ export function AppShell(): JSX.Element {
             sidebarOpen ? 'flex' : 'hidden',
           ].join(' ')}
         >
-          <Sidebar sections={DEFAULT_SIDEBAR_SECTIONS} activeId="all" onItemClick={() => undefined} />
+          <Sidebar
+            sections={APP_SIDEBAR_SECTIONS}
+            activeId={activeSidebarId}
+            onItemClick={handleSidebarItemClick}
+          />
         </div>
 
         {/* Mobile sidebar toggle button (visible < lg) */}

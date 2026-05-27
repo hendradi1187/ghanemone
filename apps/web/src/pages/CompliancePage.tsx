@@ -27,7 +27,7 @@ import { ApprovalQueue } from './compliance/ApprovalQueue';
 import { AuditLogTable } from './compliance/AuditLogTable';
 
 type ComplianceTab = 'queue' | 'audit';
-const VALID_TABS: ReadonlyArray<ComplianceTab> = ['queue', 'audit'];
+const VALID_TABS: readonly ComplianceTab[] = ['queue', 'audit'];
 
 function parseTab(raw: string | null): ComplianceTab {
   if (raw && (VALID_TABS as readonly string[]).includes(raw)) return raw as ComplianceTab;

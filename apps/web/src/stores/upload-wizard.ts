@@ -114,7 +114,7 @@ interface PersistedSlice {
   currentStep: WizardStep;
   metadata: WizardMetadata;
   /** Catatan kecil tentang file (tanpa File object). */
-  selectedFileInfo: Array<{ id: string; name: string; size: number; ext: string }>;
+  selectedFileInfo: { id: string; name: string; size: number; ext: string }[];
 }
 
 function isWizardStep(value: unknown): value is WizardStep {

@@ -66,7 +66,7 @@ function buildUser(email: string, fullName: string, role: User['role'], organiza
   };
 }
 
-const KKKS_USERS: ReadonlyArray<User> = [
+const KKKS_USERS: readonly User[] = [
   buildUser('andi@phe-onwj.co.id', 'Andi Nugroho', 'kkks_operator', 'PHE ONWJ'),
   buildUser('lina@pertamina-hulu.com', 'Lina Marpaung', 'kkks_operator', 'Pertamina Hulu Mahakam'),
   buildUser('budi@medcoenergi.com', 'Budi Adi', 'kkks_operator', 'Medco E&P'),
@@ -75,7 +75,7 @@ const KKKS_USERS: ReadonlyArray<User> = [
   buildUser('joko@phe-onwj.co.id', 'Joko Darmawan', 'kkks_operator', 'PHE ONWJ'),
 ];
 
-const REGULATOR_USERS: ReadonlyArray<User> = [
+const REGULATOR_USERS: readonly User[] = [
   buildUser('citra@skkmigas.go.id', 'Citra Wibowo', 'regulator', 'SKK Migas'),
   buildUser('budi.r@skkmigas.go.id', 'Budi Rahmat', 'regulator', 'SKK Migas'),
   buildUser('dewi@skkmigas.go.id', 'Dewi Hapsari', 'regulator', 'SKK Migas'),
@@ -84,7 +84,7 @@ const REGULATOR_USERS: ReadonlyArray<User> = [
 
 /* ─── Pending datasets templates ──────────────────────────────────────── */
 
-const PENDING_TEMPLATES: ReadonlyArray<{
+const PENDING_TEMPLATES: readonly {
   title: string;
   category: PendingDataset['category'];
   kind: PendingDataset['kind'];
@@ -93,7 +93,7 @@ const PENDING_TEMPLATES: ReadonlyArray<{
   riskFlags: RiskFlag[];
   validation: PendingDataset['validationStatus'];
   notes: string;
-}> = [
+}[] = [
   {
     title: 'WK Boundary ONWJ 2024 Update',
     category: 'concession',
@@ -321,10 +321,14 @@ export function getApprovalQueue(): PendingDataset[] {
   const minute = Math.floor(Date.now() / 60_000);
   const result: PendingDataset[] = [];
   for (let i = 0; i < PENDING_TEMPLATES.length; i += 1) {
-    const tpl = PENDING_TEMPLATES[i]!;
+    const tpl = PENDING_TEMPLATES[i];
+    if (!tpl) continue;
     const id = `pending-${i.toString().padStart(3, '0')}`;
     if (acted.has(id)) continue;
-    const submitter = KKKS_USERS[i % KKKS_USERS.length]!;
+    // i % KKKS_USERS.length always produces a valid index — KKKS_USERS is non-empty.
+    const submitterIdx = i % KKKS_USERS.length;
+    const submitter = KKKS_USERS[submitterIdx];
+    if (!submitter) continue;
     const hoursBack = (i * 7 + (minute % 11)) % 96;
     const submittedAt = new Date(Date.now() - hoursBack * 60 * 60_000).toISOString();
     result.push({
@@ -348,13 +352,21 @@ export function getApprovalQueue(): PendingDataset[] {
 
 /* ─── Audit log ───────────────────────────────────────────────────────── */
 
-const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursBack: number }> = [
+// Named actor references — avoids repeated index lookups on readonly arrays.
+// These indices match the REGULATOR_USERS / KKKS_USERS definitions above.
+const CITRA = REGULATOR_USERS[0] as User;
+const BUDI_R = REGULATOR_USERS[1] as User;
+const DEWI = REGULATOR_USERS[2] as User;
+const AHMAD = REGULATOR_USERS[3] as User;
+const ANDI = KKKS_USERS[0] as User;
+
+const SEED_AUDIT_ENTRIES: readonly (Omit<AuditEntry, 'timestamp'> & { hoursBack: number })[] = [
   {
     id: 'audit-001',
     action: 'approve',
     datasetId: 'ds-wk-onwj-2023',
     datasetTitle: 'WK Boundary ONWJ 2023',
-    actor: REGULATOR_USERS[0]!,
+    actor: CITRA,
     reason: 'Validasi lulus, boundary sesuai SK 2023.',
     hoursBack: 4,
   },
@@ -363,7 +375,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'reject',
     datasetId: 'ds-pipeline-trans-2023',
     datasetTitle: 'Pipeline TransJava 2023 (draft)',
-    actor: REGULATOR_USERS[2]!,
+    actor: DEWI,
     reason: 'Topologi tidak valid — 12 fitur self-intersect.',
     hoursBack: 6,
   },
@@ -372,7 +384,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'request-changes',
     datasetId: 'ds-seismic-medco-2024',
     datasetTitle: 'Seismic 3D Medco Vintage',
-    actor: REGULATOR_USERS[1]!,
+    actor: BUDI_R,
     reason: 'Lengkapi metadata processing vendor + tanggal akuisisi.',
     hoursBack: 8,
   },
@@ -381,7 +393,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'approve',
     datasetId: 'ds-wells-phm-2024',
     datasetTitle: 'Wells Headers PHM Q2 2024',
-    actor: REGULATOR_USERS[0]!,
+    actor: CITRA,
     hoursBack: 12,
   },
   {
@@ -389,7 +401,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'submit',
     datasetId: 'pending-000',
     datasetTitle: 'WK Boundary ONWJ 2024 Update',
-    actor: KKKS_USERS[0]!,
+    actor: ANDI,
     hoursBack: 16,
   },
   {
@@ -397,7 +409,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'approve',
     datasetId: 'ds-psc-rokan-2023',
     datasetTitle: 'PSC Rokan 2023',
-    actor: REGULATOR_USERS[3]!,
+    actor: AHMAD,
     hoursBack: 24,
   },
   {
@@ -405,7 +417,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'reject',
     datasetId: 'ds-allocation-q1-draft',
     datasetTitle: 'Allocation Q1 2024 (draft)',
-    actor: REGULATOR_USERS[2]!,
+    actor: DEWI,
     reason: 'Periode tumpang tindih dengan submission sebelumnya.',
     hoursBack: 36,
   },
@@ -414,7 +426,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'approve',
     datasetId: 'ds-facility-inv-old',
     datasetTitle: 'Facility Inventory ONWJ 2023',
-    actor: REGULATOR_USERS[0]!,
+    actor: CITRA,
     hoursBack: 48,
   },
   {
@@ -422,7 +434,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'archive',
     datasetId: 'ds-vintage-survey',
     datasetTitle: 'Vintage Survey 1998',
-    actor: REGULATOR_USERS[1]!,
+    actor: BUDI_R,
     reason: 'Data > 25 tahun — pindahkan ke arsip.',
     hoursBack: 72,
   },
@@ -431,7 +443,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'request-changes',
     datasetId: 'ds-core-photo-kutai',
     datasetTitle: 'Core Photo Library Kutai 2022',
-    actor: REGULATOR_USERS[3]!,
+    actor: AHMAD,
     reason: 'Resolusi foto kurang — minimal 2400×1800 px.',
     hoursBack: 96,
   },
@@ -440,7 +452,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'approve',
     datasetId: 'ds-wellpath-2024',
     datasetTitle: 'Well Path Database 2024',
-    actor: REGULATOR_USERS[2]!,
+    actor: DEWI,
     hoursBack: 120,
   },
   {
@@ -448,7 +460,7 @@ const SEED_AUDIT_ENTRIES: ReadonlyArray<Omit<AuditEntry, 'timestamp'> & { hoursB
     action: 'approve',
     datasetId: 'ds-prod-monthly-apr',
     datasetTitle: 'Production Monthly Apr 2026',
-    actor: REGULATOR_USERS[0]!,
+    actor: CITRA,
     hoursBack: 144,
   },
 ];

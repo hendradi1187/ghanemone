@@ -18,6 +18,8 @@
  *   - usage_stats (30d window)
  */
 import type { DatasetCardData, DatasetKind, DatasetStatus } from '@ghanem/ui';
+import type { Geometry as GeoJsonGeometry } from 'geojson';
+import { WK_GEOMETRY_BY_DATASET_ID } from './wk-boundaries';
 
 export type DatasetCategory =
   | 'seismic'
@@ -93,6 +95,16 @@ export interface DatasetUsageStats {
   unique_users_30d: number;
 }
 
+/** Kualitas data — untuk DataQualitySection di slide-over dan detail page. */
+export interface DataQualityInfo {
+  /** Persentase completeness data (0-100). */
+  completeness: number;
+  /** Tingkat akurasi posisi/geometri. */
+  positionalAccuracy: 'high' | 'medium' | 'low';
+  /** Tanggal terakhir diperbarui dalam format ISO 8601 atau label relatif. */
+  currency: string;
+}
+
 export interface DatasetRecord extends DatasetCardData {
   /** Kategori canonical (untuk filter). */
   categoryId: DatasetCategory;
@@ -120,16 +132,23 @@ export interface DatasetRecord extends DatasetCardData {
   contact: DatasetContact;
   /** Usage stats 30d window (Phase 8.8). */
   usage_stats: DatasetUsageStats;
+  /** Informasi kualitas data (Sprint 2B). */
+  dataQuality: DataQualityInfo;
+  /**
+   * Task #21: GeoJSON geometry organik untuk concession WK — polygon handcrafted.
+   * Jika tersedia, HfMap akan pakai ini (bukan bbox rectangle) untuk render polygon.
+   */
+  geometry?: GeoJsonGeometry;
 }
 
 /** Provider catalog — fixed list of KKKS. */
-export const PROVIDERS: ReadonlyArray<{
+export const PROVIDERS: readonly {
   id: string;
   name: string;
   initials: string;
   color: string;
   domain: string;
-}> = [
+}[] = [
   { id: 'phe-onwj', name: 'PHE ONWJ', initials: 'PH', color: 'var(--hf-amber-500, #c2840d)', domain: 'phe-onwj.co.id' },
   { id: 'pertamina-hulu', name: 'Pertamina Hulu Mahakam', initials: 'PHM', color: 'var(--hf-green-500, #1f8a4a)', domain: 'pertamina-hulu.com' },
   { id: 'medco', name: 'Medco E&P', initials: 'ME', color: 'var(--hf-blue-500, #2a5fb8)', domain: 'medcoenergi.com' },
@@ -140,7 +159,7 @@ export const PROVIDERS: ReadonlyArray<{
   { id: 'harbour', name: 'Harbour Energy', initials: 'HE', color: 'var(--hf-green-500, #1f8a4a)', domain: 'harbourenergy.com' },
 ];
 
-export const CATEGORIES: ReadonlyArray<{ id: DatasetCategory; label: string; color: string }> = [
+export const CATEGORIES: readonly { id: DatasetCategory; label: string; color: string }[] = [
   { id: 'seismic', label: 'Seismic 2D/3D', color: '#2a5fb8' },
   { id: 'well-log', label: 'Well log', color: '#1f8a4a' },
   { id: 'production', label: 'Production', color: '#c2840d' },
@@ -325,7 +344,7 @@ function buildFiles(record: { id: string; kind: DatasetKind; sizeMb: number; fil
   const perFileMb = Math.max(1, Math.floor(record.sizeMb / count));
   const files: DatasetFile[] = [];
   for (let n = 0; n < count; n += 1) {
-    const fmt = fmts[n % fmts.length]!;
+    const fmt = fmts[n % fmts.length] ?? fmts[0] ?? 'SHP';
     files.push({
       name: `${record.id}-part${(n + 1).toString().padStart(2, '0')}.${fmt.toLowerCase().replace('-', '')}`,
       size_bytes: perFileMb * 1024 * 1024 + (n * 13_337),
@@ -336,9 +355,11 @@ function buildFiles(record: { id: string; kind: DatasetKind; sizeMb: number; fil
   return files;
 }
 
+const FALLBACK_PROVIDER = { id: 'unknown', name: 'Unknown Provider', initials: '?', color: '', domain: 'unknown' };
+
 function buildLineage(record: { id: string; categoryId: DatasetCategory; providerId: string }): DatasetLineage {
   // Upstream: source systems + connector.
-  const provider = PROVIDERS.find((p) => p.id === record.providerId)!;
+  const provider = PROVIDERS.find((p) => p.id === record.providerId) ?? FALLBACK_PROVIDER;
   const catLabel = CATEGORIES.find((c) => c.id === record.categoryId)?.label ?? record.categoryId;
   const upstream: LineageItem[] = [
     {
@@ -385,6 +406,28 @@ function buildUsageStats(seed: number): DatasetUsageStats {
   };
 }
 
+function buildDataQuality(seed: number, year: number): DataQualityInfo {
+  // Completeness: 75-100% dengan distribusi realistis — mayoritas >90%
+  const completeness = 75 + ((seed * 7 + 3) % 26);
+  // Positional accuracy: mayoritas high (seismic/concession), medium (well-log), low (document)
+  const accuracyValues: DataQualityInfo['positionalAccuracy'][] = ['high', 'high', 'medium', 'high', 'low', 'high', 'medium'];
+  const positionalAccuracy = accuracyValues[seed % accuracyValues.length] ?? 'high';
+  // Currency: relative time berdasarkan year + seed
+  const daysAgo = 1 + (seed * 3) % 180;
+  let currency: string;
+  if (daysAgo <= 1) {
+    currency = 'kemarin';
+  } else if (daysAgo <= 7) {
+    currency = `${daysAgo} hari lalu`;
+  } else if (daysAgo <= 30) {
+    currency = `${Math.floor(daysAgo / 7)} minggu lalu`;
+  } else {
+    currency = `${Math.floor(daysAgo / 30)} bulan lalu`;
+  }
+  void year; // year tersedia untuk future relative-to-now calculation
+  return { completeness, positionalAccuracy, currency };
+}
+
 function buildMetadata(args: {
   status: DatasetStatus;
   kind: DatasetKind;
@@ -420,13 +463,14 @@ function buildCatalog(): DatasetRecord[] {
     // 7-10 entries per category → sekitar 50 total.
     const perCat = cat.id === 'document' ? 5 : 8;
     for (let j = 0; j < perCat; j += 1) {
-      const provider = PROVIDERS[i % PROVIDERS.length]!;
-      const region = REGIONS[(i * 3) % REGIONS.length]!;
+      const provider = PROVIDERS[i % PROVIDERS.length] ?? FALLBACK_PROVIDER;
+      const region = REGIONS[(i * 3) % REGIONS.length] ?? { name: 'Indonesia', lng: 117, lat: -2 };
       const titlePrefix = TITLE_PREFIX[cat.id]?.[j % (TITLE_PREFIX[cat.id]?.length ?? 1)] ?? cat.label;
       const kind = KIND_BY_CATEGORY[cat.id];
-      const format = FORMAT_BY_KIND[kind][(i + j) % FORMAT_BY_KIND[kind].length]!;
+      const formatList = FORMAT_BY_KIND[kind];
+      const format = formatList[(i + j) % formatList.length] ?? formatList[0] ?? 'SHP';
       const year = 2018 + ((i + j) % 8); // 2018-2025
-      const status = STATUS_CYCLE[i % STATUS_CYCLE.length]!;
+      const status = STATUS_CYCLE[i % STATUS_CYCLE.length] ?? 'public';
       const verified = (i + j) % 3 !== 0;
       const id = `${cat.id}-${provider.id}-${j + 1}`;
       const sizeMb = kind === 'VOLUME' ? 4500 + ((i * 137) % 14000) : 5 + ((i * 11) % 240);
@@ -473,6 +517,11 @@ function buildCatalog(): DatasetRecord[] {
         tags: buildTags(cat.id, provider.name, region.name),
         contact: buildContact(provider),
         usage_stats: buildUsageStats(i + j),
+        dataQuality: buildDataQuality(i + j, year),
+        // Task #21: Attach geometry organik WK untuk concession records yang punya entry di WK_BOUNDARIES
+        ...(cat.id === 'concession' && WK_GEOMETRY_BY_DATASET_ID.has(id)
+          ? { geometry: WK_GEOMETRY_BY_DATASET_ID.get(id) }
+          : {}),
       });
       i += 1;
     }
@@ -510,7 +559,7 @@ function relativeLabel(j: number): string {
 }
 
 /** Frozen canonical catalog — same data antar reload. */
-export const MOCK_CATALOG: ReadonlyArray<DatasetRecord> = Object.freeze(buildCatalog());
+export const MOCK_CATALOG: readonly DatasetRecord[] = Object.freeze(buildCatalog());
 
 /** Helper: tahun min/max yang available di catalog (untuk slider). */
 export const DATASET_YEAR_RANGE: Readonly<[number, number]> = (() => {

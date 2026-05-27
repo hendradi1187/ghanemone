@@ -68,11 +68,11 @@ export interface SystemHealth {
   /** Error rate persen. */
   errorRatePct: number;
   /** Time series 24 jam untuk latency chart. */
-  latencyTrend: Array<{ hour: string; latency: number }>;
+  latencyTrend: { hour: string; latency: number }[];
   /** Throughput per jam. */
-  throughputByHour: Array<{ hour: string; throughput: number }>;
+  throughputByHour: { hour: string; throughput: number }[];
   /** Breakdown error by source. */
-  errorBreakdown: Array<{ source: string; count: number }>;
+  errorBreakdown: { source: string; count: number }[];
 }
 
 export type JobLogStatus = 'success' | 'failure';
@@ -100,11 +100,11 @@ const PROVIDERS = [
   'Premier Oil',
 ];
 
-const PIPELINE_TEMPLATES: ReadonlyArray<{
+const PIPELINE_TEMPLATES: readonly {
   name: string;
   type: PipelineType;
   stepTotal: number;
-}> = [
+}[] = [
   { name: 'SHP Import · WK Boundary', type: 'shp-import', stepTotal: 5 },
   { name: 'SEG-Y Processing · 3D Volume', type: 'segy-processing', stepTotal: 8 },
   { name: 'Tile Generation · Basemap', type: 'tile-generation', stepTotal: 6 },
@@ -166,7 +166,7 @@ export function getPipelines(): Pipeline[] {
   return PIPELINE_TEMPLATES.map((tpl, idx) => {
     const id = `pipe-${idx.toString().padStart(3, '0')}`;
     const statusIdx = (idx + Math.floor(minute / 5)) % STATUS_CYCLE.length;
-    const status = STATUS_CYCLE[statusIdx]!;
+    const status = STATUS_CYCLE[statusIdx] ?? 'queued';
     const providerIdx = idx % PROVIDERS.length;
     const baseProgress = Math.floor(pseudo(id, minute) * 90) + 8;
     let progress = 0;
@@ -197,7 +197,7 @@ export function getPipelines(): Pipeline[] {
       name: tpl.name,
       type: tpl.type,
       status,
-      provider: PROVIDERS[providerIdx]!,
+      provider: PROVIDERS[providerIdx] ?? 'Unknown Provider',
       startedAt: nowOffset(minutesBack),
       durationSec,
       progress,
@@ -214,13 +214,13 @@ export function getPipelines(): Pipeline[] {
   });
 }
 
-const ALERT_TEMPLATES: ReadonlyArray<{
+const ALERT_TEMPLATES: readonly {
   severity: AlertSeverity;
   title: string;
   source: string;
   message: string;
   link?: string;
-}> = [
+}[] = [
   {
     severity: 'critical',
     title: 'Pipeline harvest failed',
@@ -345,11 +345,11 @@ export function getSystemHealth(): SystemHealth {
   };
 }
 
-const RECENT_JOB_TEMPLATES: ReadonlyArray<{
+const RECENT_JOB_TEMPLATES: readonly {
   pipelineName: string;
   status: JobLogStatus;
   message: string;
-}> = [
+}[] = [
   { pipelineName: 'SHP Import · WK ONWJ 2024', status: 'success', message: '128 features imported.' },
   { pipelineName: 'Validation · Topology Check', status: 'success', message: 'All checks passed.' },
   { pipelineName: 'SEG-Y Processing · 3D Volume', status: 'failure', message: 'Step 5: missing trace headers.' },
@@ -371,7 +371,7 @@ export function getRecentJobs(limit = 50): JobLogEntry[] {
   const { minute } = getCurrentTimeOffsets();
   const out: JobLogEntry[] = [];
   for (let i = 0; i < limit; i += 1) {
-    const tpl = RECENT_JOB_TEMPLATES[i % RECENT_JOB_TEMPLATES.length]!;
+    const tpl = RECENT_JOB_TEMPLATES[i % RECENT_JOB_TEMPLATES.length] ?? { pipelineName: 'Unknown', status: 'success' as const, message: '' };
     const minutesBack = i * 7 + (minute % 5);
     const id = `job-${i.toString().padStart(3, '0')}`;
     out.push({

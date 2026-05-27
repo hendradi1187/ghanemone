@@ -18,8 +18,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Icon } from '@ghanem/ui';
-import type { Task } from '../../mocks/workspace';
-import { TASK_STATUS_META } from '../../mocks/workspace';
+import { TASK_STATUS_META, type Task } from '../../mocks/workspace';
 
 export interface TaskCardProps {
   task: Task;

@@ -31,7 +31,7 @@ import { useUploadWizardStore } from '../../stores/upload-wizard';
  * setiap file. Diappend setelah detected attributes; kalau total > 15, kita
  * truncate.
  */
-const SYNTHETIC_PADDING: ReadonlyArray<AttributeRow> = [
+const SYNTHETIC_PADDING: readonly AttributeRow[] = [
   {
     name: 'created_at',
     type: 'date',
@@ -108,9 +108,7 @@ function padAttributes(detected: AttributeRow[]): AttributeRow[] {
   return padded.slice(0, MAX_ATTRIBUTES);
 }
 
-interface AttrCache {
-  [fileId: string]: AttributeRow[];
-}
+type AttrCache = Record<string, AttributeRow[]>;
 
 export function SchemaPreview(): JSX.Element {
   const selectedFiles = useUploadWizardStore((s) => s.selectedFiles);

@@ -134,7 +134,8 @@ export async function patchTaskStatus(id: string, status: TaskStatus): Promise<T
   const current = readTasks();
   const idx = current.findIndex((t) => t.id === id);
   if (idx < 0) return null;
-  const existing = current[idx]!;
+  const existing = current[idx];
+  if (!existing) return null;
   const updated: Task = { ...existing, status };
   const next = [...current];
   next[idx] = updated;

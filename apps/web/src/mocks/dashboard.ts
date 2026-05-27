@@ -181,7 +181,7 @@ export interface ActivityEvent {
   severity: ActivitySeverity;
 }
 
-const ACTIVITY_FIXTURES: ReadonlyArray<Omit<ActivityEvent, 'id' | 'timestamp'>> = [
+const ACTIVITY_FIXTURES: readonly Omit<ActivityEvent, 'id' | 'timestamp'>[] = [
   { type: 'upload', message: 'PHE ONWJ mengunggah dataset baru "WK Boundary 2024"', actor: { name: 'PHE ONWJ', initials: 'PH' }, severity: 'success' },
   { type: 'upload', message: 'Medco E&P mengunggah Seismic 3D N.Sumatra', actor: { name: 'Medco E&P', initials: 'ME' }, severity: 'success' },
   { type: 'approval', message: 'SKK Migas menyetujui PSC Doc Rokan', actor: { name: 'SKK Migas', initials: 'SM' }, severity: 'success' },
@@ -204,8 +204,10 @@ export function getActivityFeed(limit = 10): ActivityEvent[] {
   const max = Math.min(limit, ACTIVITY_FIXTURES.length);
   const out: ActivityEvent[] = [];
   for (let i = 0; i < max; i += 1) {
-    const fix = ACTIVITY_FIXTURES[i]!;
-    const offset = offsetsMin[i] ?? (offsetsMin.at(-1)! + (i - offsetsMin.length + 1) * 360);
+    const fix = ACTIVITY_FIXTURES[i];
+    if (!fix) continue;
+    const lastOffset = offsetsMin.at(-1) ?? 1880;
+    const offset = offsetsMin[i] ?? (lastOffset + (i - offsetsMin.length + 1) * 360);
     const ts = new Date(now.getTime() - offset * 60_000).toISOString();
     out.push({
       id: `evt-${i + 1}`,

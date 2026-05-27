@@ -2,10 +2,11 @@
  * Router — React Router v6 config.
  *
  * Public routes:
+ *   - /                       HomePage (landing page — tanpa AppShell sidebar)
  *   - /login                  LoginPage (mock auth)
  *
  * Protected routes (di-wrap AuthGuard + AppShell layout):
- *   - /                       DashboardPage (Phase 8.9 — persona-aware)
+ *   - /dashboard              DashboardPage (Phase 8.9 — persona-aware)
  *   - /explore                ExplorePage
  *   - /datasets/:id           DatasetDetailPage (Phase 8.8)
  *   - /map                    MapPage (Phase 8.10 — Leaflet integration)
@@ -13,6 +14,14 @@
  *   - /workspace              WorkspacePage (Phase 8.12 — project list)
  *   - /workspace/:projectId   ProjectKanbanPage (Phase 8.12 — Kanban dnd-kit)
  *   - /apps                   AppsPage (Phase 8.13 — marketplace)
+ *   - /monitoring             MonitoringPage
+ *   - /upload                 UploadPage (KKKS)
+ *   - /compliance             CompliancePage (Regulator)
+ *
+ * Sprint 2C change:
+ *   - `/` sekarang adalah HomePage (landing page publik, no AppShell).
+ *   - `/dashboard` adalah entry point AppShell (menggantikan `/` index route).
+ *   - AuthGuard tetap melindungi semua route app (redirect ke `/login` lalu back ke `/dashboard`).
  *
  * Fallback:
  *   - *                       NotFoundPage
@@ -66,6 +75,9 @@ const CompliancePage = lazy(() =>
 const NotFoundPage = lazy(() =>
   import('./pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
 );
+const HomePage = lazy(() =>
+  import('./pages/HomePage').then((m) => ({ default: m.HomePage })),
+);
 
 /** Minimal centered loader untuk Suspense fallback. */
 function RouteLoader(): JSX.Element {
@@ -91,6 +103,15 @@ function Lazy({ children }: { children: ReactNode }): JSX.Element {
 }
 
 const routes: RouteObject[] = [
+  // ── Public routes ──────────────────────────────────────────────────────
+  {
+    path: '/',
+    element: (
+      <Lazy>
+        <HomePage />
+      </Lazy>
+    ),
+  },
   {
     path: '/login',
     element: (
@@ -99,8 +120,12 @@ const routes: RouteObject[] = [
       </Lazy>
     ),
   },
+  // ── Protected routes (AppShell) ────────────────────────────────────────
+  // Pakai pathless parent (tanpa `path`) sebagai layout wrapper — ini valid
+  // di React Router v6 dan memungkinkan child pakai absolute paths bebas.
+  // Sebelumnya parent `/dashboard` dengan child `/explore` invalid karena
+  // absolute child path harus start dengan parent path.
   {
-    path: '/',
     element: (
       <AuthGuard>
         <AppShell />
@@ -108,7 +133,7 @@ const routes: RouteObject[] = [
     ),
     children: [
       {
-        index: true,
+        path: '/dashboard',
         element: (
           <Lazy>
             <DashboardPage />
@@ -116,7 +141,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'explore',
+        path: '/explore',
         element: (
           <Lazy>
             <ExplorePage />
@@ -124,7 +149,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'datasets/:id',
+        path: '/datasets/:id',
         element: (
           <Lazy>
             <DatasetDetailPage />
@@ -132,7 +157,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'map',
+        path: '/map',
         element: (
           <Lazy>
             <MapPage />
@@ -140,7 +165,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'analytics',
+        path: '/analytics',
         element: (
           <Lazy>
             <AnalyticsPage />
@@ -148,7 +173,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'workspace',
+        path: '/workspace',
         element: (
           <Lazy>
             <WorkspacePage />
@@ -156,7 +181,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'workspace/:projectId',
+        path: '/workspace/:projectId',
         element: (
           <Lazy>
             <ProjectKanbanPage />
@@ -164,7 +189,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'apps',
+        path: '/apps',
         element: (
           <Lazy>
             <AppsPage />
@@ -172,7 +197,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'monitoring',
+        path: '/monitoring',
         element: (
           <Lazy>
             <MonitoringPage />
@@ -180,7 +205,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'upload',
+        path: '/upload',
         element: (
           <Lazy>
             <UploadPage />
@@ -188,7 +213,7 @@ const routes: RouteObject[] = [
         ),
       },
       {
-        path: 'compliance',
+        path: '/compliance',
         element: (
           <Lazy>
             <CompliancePage />

@@ -38,8 +38,7 @@ import {
   arrayMove,
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
-import type { Task, TaskStatus } from '../../mocks/workspace';
-import { TASK_STATUSES, TASK_STATUS_META } from '../../mocks/workspace';
+import { TASK_STATUSES, TASK_STATUS_META, type Task, type TaskStatus } from '../../mocks/workspace';
 import { KanbanColumn } from './KanbanColumn';
 import { TaskCard } from './TaskCard';
 
@@ -153,7 +152,8 @@ export function KanbanBoard({
       setItems((current) => {
         const activeIdx = current.findIndex((t) => t.id === activeIdStr);
         if (activeIdx < 0) return current;
-        const activeTaskNow = current[activeIdx]!;
+        const activeTaskNow = current[activeIdx];
+        if (!activeTaskNow) return current;
         const targetStatus = resolveTargetStatus(overIdStr, current);
         if (!targetStatus) return current;
         if (activeTaskNow.status === targetStatus) return current;
@@ -181,7 +181,8 @@ export function KanbanBoard({
       const overIdStr = String(over.id);
       const activeIdx = items.findIndex((t) => t.id === activeIdStr);
       if (activeIdx < 0) return;
-      const activeTaskNow = items[activeIdx]!;
+      const activeTaskNow = items[activeIdx];
+      if (!activeTaskNow) return;
 
       // Drop di task lain di kolom yang sama → reorder within column.
       const overTask = items.find((t) => t.id === overIdStr);

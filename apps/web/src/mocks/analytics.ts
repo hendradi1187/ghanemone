@@ -13,8 +13,7 @@
  * (atau SQL endpoint di trusted data plane). Saved queries akan persist ke
  * server, bukan localStorage.
  */
-import type { DatasetAttribute } from './datasets';
-import { MOCK_CATALOG } from './datasets';
+import { MOCK_CATALOG, type DatasetAttribute } from './datasets';
 
 /** Tipe chart yang didukung Analytics page. Sub-set chart cards yang ada di
  *  @ghanem/ui (LineChartCard, BarChartCard, PieChartCard, DonutChartCard). */
@@ -71,7 +70,7 @@ function buildBuiltinSavedQueries(): SavedQuery[] {
   const created = '2026-04-01T08:00:00Z';
   const author = 'SPEKTRUM Sample';
   // Pakai dataset yang dijamin ada di MOCK_CATALOG (cek index pertama per kategori).
-  const samples: Array<Omit<SavedQuery, 'createdAt' | 'createdBy'>> = [
+  const samples: Omit<SavedQuery, 'createdAt' | 'createdBy'>[] = [
     {
       id: 'sample-prod-by-field',
       name: 'Produksi per Lapangan (BOPD)',
@@ -140,11 +139,11 @@ function buildBuiltinSavedQueries(): SavedQuery[] {
 }
 
 /** Sync read built-in starter queries — frozen list. */
-export function getBuiltinSavedQueries(): ReadonlyArray<SavedQuery> {
+export function getBuiltinSavedQueries(): readonly SavedQuery[] {
   return BUILTIN_SAVED_QUERIES;
 }
 
-const BUILTIN_SAVED_QUERIES: ReadonlyArray<SavedQuery> = Object.freeze(buildBuiltinSavedQueries());
+const BUILTIN_SAVED_QUERIES: readonly SavedQuery[] = Object.freeze(buildBuiltinSavedQueries());
 
 /* ─── Query runner ─────────────────────────────────────────────────────── */
 

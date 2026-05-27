@@ -14,8 +14,12 @@
  * `SeismicWellDetails` (lewat `../features/seismic` barrel) — was cross-file
  * globals in HTML harness.
  *
+ * Sprint Mini Task #18: DatasetSlideOver dihubungkan ke MapPage via URL state
+ * `?selected=<dataset-id>`. Klik marker/polygon → panel detail muncul dari kanan.
+ * Deep-link `/map?selected=<id>` juga supported.
+ *
  * URL state (shareable view):
- *   ?lat=...&lng=...&zoom=...&dataset=...&basemap=osm
+ *   ?lat=...&lng=...&zoom=...&dataset=...&basemap=osm&selected=...
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -28,20 +32,28 @@ import {
 } from '@ghanem/ui';
 import {
   CATEGORIES,
-  MOCK_CATALOG,
   type DatasetCategory,
   type DatasetRecord,
 } from '../mocks/datasets';
 import { SeismicCrossSection, SeismicWellDetails } from '../features/seismic';
 import { LayerPanel, type CategoryToggle } from './map/LayerPanel';
 import { DatasetSidebar } from './map/DatasetSidebar';
+import { DatasetSlideOver } from '../components/explore/DatasetSlideOver';
+import { ResetMapButton } from './map/ResetMapButton';
 import { useDebouncedValue } from '../hooks/use-debounced-value';
+import { useDatasets, useDataset } from '../hooks/useDatasets';
 
-const VALID_BASEMAPS: ReadonlyArray<BasemapId> = ['osm', 'carto', 'satellite', 'topo'];
+const VALID_BASEMAPS: readonly BasemapId[] = ['osm', 'carto', 'satellite', 'topo'];
 
 function isBasemapId(v: string | null): v is BasemapId {
-  return v !== null && (VALID_BASEMAPS as ReadonlyArray<string>).includes(v);
+  return v !== null && (VALID_BASEMAPS as readonly string[]).includes(v);
 }
+
+/**
+ * Kategori yang di-render sebagai polygon (concession + seismic punya area WK/survey).
+ * Kategori lain di-render sebagai marker titik.
+ */
+const POLYGON_CATEGORIES = new Set<DatasetCategory>(['concession', 'seismic']);
 
 /** Convert DatasetRecord → MapDataset (Leaflet overlay shape). */
 function toMapDataset(record: DatasetRecord): MapDataset {
@@ -51,6 +63,10 @@ function toMapDataset(record: DatasetRecord): MapDataset {
     name: record.title,
     category: category?.label,
     color: category?.color,
+    // Task #19: initial dari provider.initials[0] — prioritas utama, fallback ke nama[0]
+    initial: record.provider.initials.charAt(0) || record.title.charAt(0),
+    // Task #21: geometry organik dari WK_BOUNDARIES (jika ada di DatasetRecord)
+    geometry: record.geometry,
     bbox: record.metadata.bbox,
     longitude: record.longitude,
     latitude: record.latitude,
@@ -76,6 +92,24 @@ export function MapPage(): ReactElement {
   const [basemap, setBasemap] = useState<BasemapId>(initialBasemap);
   const [highlightId, setHighlightId] = useState<string | null>(initialDatasetId);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  // Task #13: LayerPanel default collapsed supaya tidak memblok area peta
+  const [layerPanelCollapsed, setLayerPanelCollapsed] = useState<boolean>(true);
+
+  // Task #18: selectedId dari URL param ?selected — untuk DatasetSlideOver deep-link
+  const selectedId = searchParams.get('selected');
+  const { data: selectedDataset = null } = useDataset(selectedId ?? undefined);
+
+  /**
+   * Task #22 — Fly-back UX.
+   *
+   * flyToDefaultSignal: counter yang di-increment untuk trigger MapResetEffect di HfMap.
+   * Pakai counter (bukan boolean) supaya bisa trigger berulang kali.
+   *
+   * hasMapInteracted: true saat user sudah pan/zoom manual → Reset button visible (Goal C).
+   * Di-reset ke false saat fly-back dipicu (user sudah di Indonesia view lagi).
+   */
+  const [flyToDefaultSignal, setFlyToDefaultSignal] = useState<number>(0);
+  const [hasMapInteracted, setHasMapInteracted] = useState<boolean>(false);
 
   // Search query (debounced).
   const [searchInput, setSearchInput] = useState<string>('');
@@ -101,19 +135,41 @@ export function MapPage(): ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [basemap, highlightId]);
 
-  /* ─── Derived data ─────────────────────────────────────────────────── */
-  const visibleDatasets = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return MOCK_CATALOG.filter((d) => activeCategories.has(d.categoryId)).filter((d) => {
-      if (!q) return true;
-      return (
-        d.title.toLowerCase().includes(q) ||
-        d.provider.name.toLowerCase().includes(q) ||
-        (d.category?.toLowerCase().includes(q) ?? false)
-      );
-    });
-  }, [activeCategories, search]);
+  /* ─── Real API datasets (Sprint 9.3) ──────────────────────────────── */
+  // Determine active category filter from first active toggle.
+  // Full multi-category support deferred to Sprint 9.4.
+  const activeCategoryForApi = useMemo(() => {
+    const enabledCategories = [...activeCategories];
+    if (enabledCategories.length === CATEGORIES.length) return undefined; // all active = no filter
+    return enabledCategories[0];
+  }, [activeCategories]);
 
+  const { data: datasetsData } = useDatasets({
+    search: search.trim() || undefined,
+    category: activeCategoryForApi,
+    limit: 100, // load up to 100 for map view
+    page: 1,
+  });
+
+  /* ─── Derived data ─────────────────────────────────────────────────── */
+  const visibleDatasets = useMemo<DatasetRecord[]>(() => {
+    if (!datasetsData?.items) return [];
+    // Client-side category filter for multi-category toggles.
+    return datasetsData.items.filter((d) => activeCategories.has(d.categoryId));
+  }, [datasetsData, activeCategories]);
+
+  // Task #20: Split datasets jadi polygon (concession + seismic) vs marker (semua lain)
+  const polygonDatasets = useMemo(
+    () => visibleDatasets.filter((d) => POLYGON_CATEGORIES.has(d.categoryId)).map(toMapDataset),
+    [visibleDatasets],
+  );
+
+  const markerDatasets = useMemo(
+    () => visibleDatasets.filter((d) => !POLYGON_CATEGORIES.has(d.categoryId)).map(toMapDataset),
+    [visibleDatasets],
+  );
+
+  // Tetap expose semua untuk fly-to di MapEffects + backward-compat DatasetSidebar
   const mapDatasets = useMemo(
     () => visibleDatasets.map(toMapDataset),
     [visibleDatasets],
@@ -125,10 +181,10 @@ export function MapPage(): ReactElement {
         id: c.id,
         label: c.label,
         color: c.color,
-        count: MOCK_CATALOG.filter((d) => d.categoryId === c.id).length,
+        count: visibleDatasets.filter((d) => d.categoryId === c.id).length,
         enabled: activeCategories.has(c.id),
       })),
-    [activeCategories],
+    [activeCategories, visibleDatasets],
   );
 
   const legendEntries = useMemo(
@@ -136,9 +192,9 @@ export function MapPage(): ReactElement {
       CATEGORIES.filter((c) => activeCategories.has(c.id)).map((c) => ({
         label: c.label,
         color: c.color,
-        count: MOCK_CATALOG.filter((d) => d.categoryId === c.id).length,
+        count: visibleDatasets.filter((d) => d.categoryId === c.id).length,
       })),
-    [activeCategories],
+    [activeCategories, visibleDatasets],
   );
 
   /* ─── Handlers ─────────────────────────────────────────────────────── */
@@ -151,9 +207,62 @@ export function MapPage(): ReactElement {
     });
   }, []);
 
+  /**
+   * Task #18: Klik dataset → set ?selected= di URL (untuk DatasetSlideOver)
+   * + set highlightId untuk fly-to animasi di peta.
+   */
   const handleSelectDataset = useCallback((dataset: DatasetRecord | MapDataset): void => {
     setHighlightId(dataset.id);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('selected', dataset.id);
+        return next;
+      },
+      { replace: false },
+    );
+  }, [setSearchParams]);
+
+  /**
+   * Task #22: Trigger fly-back ke Indonesia default view.
+   * Juga reset hasMapInteracted supaya Reset button hilang lagi (sudah di default view).
+   */
+  const triggerFlyBack = useCallback((): void => {
+    setFlyToDefaultSignal((prev) => prev + 1);
+    setHighlightId(null);
+    setHasMapInteracted(false);
   }, []);
+
+  /**
+   * Task #18 + #22: Tutup SlideOver → hapus ?selected dari URL + fly-back ke overview.
+   *
+   * Fly-back hanya dipicu kalau ada dataset yang sedang selected (user EXPLICITLY tutup).
+   * Kalau panel sudah closed (selectedId = null), tidak ada efek fly-back.
+   *
+   * Edge case deep-link: kalau user langsung navigasi ke /map?selected=id dan langsung
+   * tutup tanpa pan sama sekali, fly-back tetap dipicu — ini intentional karena
+   * user mungkin ingin lihat konteks sekitar setelah tutup panel.
+   */
+  const handleCloseSlideOver = useCallback((): void => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('selected');
+        return next;
+      },
+      { replace: true },
+    );
+    // Fly-back ke Indonesia overview saat panel ditutup (UX pattern Koordinates.com)
+    triggerFlyBack();
+  }, [setSearchParams, triggerFlyBack]);
+
+  /**
+   * Task #22 Goal B: Handler untuk Reset Map button.
+   * Trigger fly-back tanpa menutup SlideOver (user bisa reset view sambil panel terbuka).
+   */
+  const handleResetMap = useCallback((): void => {
+    triggerFlyBack();
+  }, [triggerFlyBack]);
 
   /* ─── Search input ref — focus on "/" key ──────────────────────────── */
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -183,16 +292,22 @@ export function MapPage(): ReactElement {
             <HfMap
               basemap={basemap}
               datasets={mapDatasets}
+              polygonDatasets={polygonDatasets}
+              markerDatasets={markerDatasets}
               highlightId={highlightId}
               onDatasetClick={handleSelectDataset}
               ariaLabel="Peta dataset SPEKTRUM"
               height="100%"
+              flyToDefaultSignal={flyToDefaultSignal}
+              onInteractionChange={setHasMapInteracted}
             >
               {/* ── Floating top-center: search ────────────────────────── */}
+              {/* Task #14: w-[280px] di mobile → md:w-[360px] di desktop.
+                  max-w-[calc(100%-180px)] reserve ruang untuk View Mode Toggle kanan + padding. */}
               <div
                 className={[
-                  'absolute top-4 left-1/2 -translate-x-1/2 z-floating',
-                  'w-[360px] max-w-[calc(100%-32px)]',
+                  'absolute top-3 left-1/2 -translate-x-1/2 z-floating-overlay',
+                  'w-[280px] md:w-[360px] max-w-[calc(100%-180px)]',
                   'bg-surface border border-line rounded-3 shadow-3',
                 ].join(' ')}
               >
@@ -213,11 +328,12 @@ export function MapPage(): ReactElement {
               </div>
 
               {/* ── Floating top-right: view mode toggle ───────────────── */}
+              {/* Task #17: z-floating-overlay (55) — selalu di atas panels */}
               <div
                 role="group"
                 aria-label="Mode peta"
                 className={[
-                  'absolute top-4 right-4 z-floating',
+                  'absolute top-3 right-4 z-floating-overlay',
                   'inline-flex bg-surface border border-line rounded-2 p-0.5 shadow-2',
                 ].join(' ')}
               >
@@ -246,7 +362,8 @@ export function MapPage(): ReactElement {
               </div>
 
               {/* ── Floating left: LayerPanel ──────────────────────────── */}
-              <div className="absolute top-20 left-4 z-floating">
+              {/* Task #13: default collapsed=true, Task #17: z-floating-panel (51) */}
+              <div className="absolute top-20 left-4 z-floating-panel">
                 <LayerPanel
                   basemap={basemap}
                   onBasemapChange={setBasemap}
@@ -256,14 +373,17 @@ export function MapPage(): ReactElement {
                   onSeismicToggle={() => setSeismicOn((v) => !v)}
                   onHorizonsToggle={() => setShowHorizons((v) => !v)}
                   onFaultsToggle={() => setShowFaults((v) => !v)}
+                  collapsed={layerPanelCollapsed}
+                  onToggleCollapse={() => setLayerPanelCollapsed((v) => !v)}
                 />
               </div>
 
               {/* ── Floating right: dataset sidebar ────────────────────── */}
-              <div className="absolute top-20 right-4 z-floating">
+              {/* Task #17: z-floating-panel (51) */}
+              <div className="absolute top-20 right-4 z-floating-panel">
                 <DatasetSidebar
                   visible={visibleDatasets}
-                  total={MOCK_CATALOG.length}
+                  total={datasetsData?.total ?? visibleDatasets.length}
                   highlightId={highlightId}
                   onSelect={handleSelectDataset}
                   collapsed={sidebarCollapsed}
@@ -271,15 +391,19 @@ export function MapPage(): ReactElement {
                 />
               </div>
 
-              {/* ── Floating bottom-right: legend ──────────────────────── */}
-              <div className="absolute bottom-4 right-4 z-floating">
+              {/* ── Floating bottom-center: legend ─────────────────────── */}
+              {/* Task #15: pindah ke bottom-center supaya tidak overlap DatasetSidebar.
+                  Task #17: z-floating-base (50) — status elemen statis. */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-floating-base max-w-md">
                 <MapLegend entries={legendEntries} />
               </div>
 
               {/* ── Floating bottom-left: scale + CRS ──────────────────── */}
+              {/* Task #16: copyright hidden di mobile (xs–sm), muncul md+.
+                  Task #17: z-floating-base (50) */}
               <div
                 className={[
-                  'absolute bottom-4 left-4 z-floating',
+                  'absolute bottom-4 left-4 z-floating-base',
                   'inline-flex items-center gap-2 px-2.5 py-1 rounded-2',
                   'bg-surface/95 border border-line shadow-1',
                   'text-[10.5px] font-mono text-ink-3',
@@ -289,8 +413,19 @@ export function MapPage(): ReactElement {
                 <span>−2.5°S, 118.0°E</span>
                 <span className="text-ink-5">|</span>
                 <span>EPSG:4326</span>
-                <span className="text-ink-5">|</span>
-                <span>© OSM / Carto / Esri</span>
+                <span className="text-ink-5 hidden md:inline">|</span>
+                <span className="hidden md:inline">© OSM / Carto / Esri</span>
+              </div>
+
+              {/* ── Floating bottom-right: Reset Map button ─────────────── */}
+              {/* Task #22 Goal B: Fly-back ke Indonesia default view.
+                  Task #22 Goal C: Hanya visible kalau hasMapInteracted = true.
+                  z-floating-overlay (55) — di atas panels, sama level dgn search/view-toggle. */}
+              <div className="absolute bottom-4 right-4 z-floating-overlay">
+                <ResetMapButton
+                  visible={hasMapInteracted}
+                  onClick={handleResetMap}
+                />
               </div>
             </HfMap>
           </div>
@@ -304,6 +439,13 @@ export function MapPage(): ReactElement {
         {/* Right Well Details panel — Fix bug #2: imported from features/seismic */}
         {seismicOn ? <SeismicWellDetails onClose={() => setSeismicOn(false)} /> : null}
       </div>
+
+      {/* Task #18: DatasetSlideOver — trigger via klik marker/polygon atau deep-link ?selected= */}
+      <DatasetSlideOver
+        open={!!selectedDataset}
+        dataset={selectedDataset}
+        onClose={handleCloseSlideOver}
+      />
     </div>
   );
 }
