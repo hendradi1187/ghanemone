@@ -1,0 +1,415 @@
+// Prisma schema — Ghanem.one Spatial Intelligence Platform
+// Owner: backend-agent (User, Organization, Session, AuditLog)
+// GIS-agent extends this schema with geometry tables (WorkArea, Well, Pipeline, Dataset, etc.)
+//
+// COORDINATION NOTE FOR GIS-AGENT:
+// - User.id (String/UUID) is the foreign key used by: Dataset.uploaderId, Dataset.approvedById, etc.
+// - Organization.id (String/UUID) used by: Dataset.organizationId, WorkArea.organizationId, etc.
+// - AuditLog already has entity/entityId for generic linking — GIS-agent should log actions here
+// - Do NOT modify User/Organization/Session/AuditLog models — extend schema only.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearch"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis, postgis_topology, pgcrypto]
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  REGULATOR
+  KKKS_OPERATOR
+  ANALYST
+  PUBLIC
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum OrganizationType {
+  REGULATOR
+  KKKS
+  CONTRACTOR
+  PUBLIC
+}
+
+// ---------------------------------------------------------------------------
+// Core identity models
+// ---------------------------------------------------------------------------
+
+model User {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email          String       @unique
+  passwordHash   String       @map("password_hash")
+  name           String
+  role           UserRole     @default(ANALYST)
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  sessions       Session[]
+  auditLogs      AuditLog[]
+  // §GIS back-relations
+  uploadedDatasets Dataset[]  @relation("DatasetUploader")
+  status         UserStatus   @default(ACTIVE)
+  lastLoginAt    DateTime?    @map("last_login_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Organization {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String           @unique
+  slug      String           @unique
+  type      OrganizationType
+  logoUrl   String?          @map("logo_url")
+  users     User[]
+  // §GIS back-relations
+  datasets  Dataset[]        @relation("DatasetOrganization")
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  @@index([slug])
+  @@map("organizations")
+}
+
+model Session {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken String    @unique @map("refresh_token")
+  userAgent    String?   @map("user_agent")
+  ipAddress    String?   @map("ip_address")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@map("sessions")
+}
+
+/// Immutable audit log — enforced by PostgreSQL trigger (no UPDATE/DELETE allowed).
+/// GIS-agent: log Dataset/Well/Pipeline actions by setting entity + entityId.
+model AuditLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String   // e.g. "USER_LOGIN", "DATASET_CREATE", "WELL_UPDATE"
+  entity    String?  // e.g. "User", "Dataset", "Well"
+  entityId  String?  @map("entity_id") // UUID of the affected record
+  metadata  Json?    // before/after state, request IP, etc.
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// §GIS — Geospatial domain
+// Owner: gis-agent
+//
+// Geometry columns are added via raw SQL migration — NOT declared in Prisma
+// schema because Prisma does not natively support PostGIS geometry types.
+// All geometry stored in EPSG:4326 (WGS84). Transform to EPSG:3857 on read.
+//
+// GIST indexes mandatory on every geometry column — enforced in migration SQL.
+// SRID CHECK constraints enforced in migration SQL.
+//
+// Column naming convention: @map("snake_case") to match backend-agent pattern.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// WorkArea — Wilayah Kerja (PSC / Gross Split block)
+// Geometry: GEOMETRY(Polygon, 4326)  ← added via migration SQL
+// ---------------------------------------------------------------------------
+model WorkArea {
+  id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug          String            @unique          // "wk-onwj"
+  name          String            @unique          // "WK ONWJ"
+  operator      String
+  contractStart DateTime          @map("contract_start")
+  contractEnd   DateTime          @map("contract_end")
+  status        WorkAreaStatus    @default(ACTIVE)
+  color         String?           // Hex map color, e.g. "#7a5cb8"
+  // geometry GEOMETRY(Polygon, 4326) — added via migration SQL
+  // CREATE INDEX "work_areas_geometry_gist" ON "work_areas" USING GIST ("geometry");
+  bboxJson      Json?             @map("bbox_json")     // [minLon, minLat, maxLon, maxLat]
+  centerLat     Float?            @map("center_lat")
+  centerLon     Float?            @map("center_lon")
+  totalAreaKm2  Float?            @map("total_area_km2") // ST_Area(geometry::geography)/1e6
+  datasets         Dataset[]         @relation("DatasetWorkArea")
+  wells            Well[]
+  pipelines        Pipeline[]
+  facilities       Facility[]
+  seismicCoverages SeismicCoverage[]
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  @@index([operator])
+  @@index([status])
+  @@index([slug])
+  @@map("work_areas")
+}
+
+enum WorkAreaStatus {
+  ACTIVE
+  EXPIRED
+  PENDING
+  TERMINATED
+}
+
+// ---------------------------------------------------------------------------
+// Well — sumur eksplorasi / produksi
+// Geometry: GEOMETRY(Point, 4326)  ← added via migration SQL
+// latitude/longitude are redundant to geometry.y/.x — kept for non-spatial
+// queries that don't need full PostGIS overhead.
+// ---------------------------------------------------------------------------
+model Well {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uwi          String?    @unique               // Unique Well Identifier
+  name         String
+  operator     String
+  workAreaId   String?    @map("work_area_id") @db.Uuid
+  workArea     WorkArea?  @relation(fields: [workAreaId], references: [id])
+  type         WellType
+  status       WellStatus @default(ACTIVE)
+  // point GEOMETRY(Point, 4326) — added via migration SQL
+  // CREATE INDEX "wells_point_gist" ON "wells" USING GIST ("point");
+  latitude     Float      // Well-head latitude (WGS84 decimal degrees)
+  longitude    Float      // Well-head longitude
+  totalDepthM  Float?     @map("total_depth_m")
+  spudDate     DateTime?  @map("spud_date")
+  tdDate       DateTime?  @map("td_date")
+  kbElevationM Float?     @map("kb_elevation_m")
+  formation    String?    // Primary target formation
+  reservoir    String?    // Reservoir lithology
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@index([workAreaId])
+  @@index([operator])
+  @@index([status])
+  @@index([type])
+  @@map("wells")
+}
+
+enum WellType {
+  EXPLORATION
+  APPRAISAL
+  DEVELOPMENT
+  PRODUCTION
+  INJECTION
+}
+
+enum WellStatus {
+  ACTIVE
+  ABANDONED
+  SUSPENDED
+  PLANNED
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline
+// Geometry: GEOMETRY(LineString, 4326)  ← added via migration SQL
+// ---------------------------------------------------------------------------
+model Pipeline {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  operator    String
+  workAreaId  String?        @map("work_area_id") @db.Uuid
+  workArea    WorkArea?      @relation(fields: [workAreaId], references: [id])
+  type        PipelineType
+  status      PipelineStatus @default(ACTIVE)
+  // line GEOMETRY(LineString, 4326) — added via migration SQL
+  // CREATE INDEX "pipelines_line_gist" ON "pipelines" USING GIST ("line");
+  lengthKm    Float?         @map("length_km")     // ST_Length(line::geography)/1000
+  diameterIn  Float?         @map("diameter_in")   // Nominal diameter (inches)
+  pressureBar Float?         @map("pressure_bar")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@index([workAreaId])
+  @@index([operator])
+  @@index([status])
+  @@map("pipelines")
+}
+
+enum PipelineType {
+  OIL
+  GAS
+  MULTIPHASE
+  WATER
+  CONDENSATE
+}
+
+enum PipelineStatus {
+  ACTIVE
+  INACTIVE
+  DECOMMISSIONED
+  PLANNED
+}
+
+// ---------------------------------------------------------------------------
+// Facility — platform, FPSO, refinery, processing plant, etc.
+// Geometry: GEOMETRY(Point, 4326)  ← added via migration SQL
+// ---------------------------------------------------------------------------
+model Facility {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  type         FacilityType
+  operator     String
+  workAreaId   String?        @map("work_area_id") @db.Uuid
+  workArea     WorkArea?      @relation(fields: [workAreaId], references: [id])
+  // point GEOMETRY(Point, 4326) — added via migration SQL
+  // CREATE INDEX "facilities_point_gist" ON "facilities" USING GIST ("point");
+  latitude     Float
+  longitude    Float
+  status       FacilityStatus @default(ACTIVE)
+  waterDepthM  Float?         @map("water_depth_m")
+  installYear  Int?           @map("install_year")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  @@index([workAreaId])
+  @@index([operator])
+  @@index([type])
+  @@index([status])
+  @@map("facilities")
+}
+
+enum FacilityType {
+  PLATFORM
+  FPSO
+  REFINERY
+  STORAGE_TANK
+  COMPRESSOR_STATION
+  PROCESSING_PLANT
+  SUBSEA_MANIFOLD
+  METERING_STATION
+}
+
+enum FacilityStatus {
+  ACTIVE
+  STANDBY
+  DECOMMISSIONED
+  UNDER_CONSTRUCTION
+}
+
+// ---------------------------------------------------------------------------
+// Dataset — katalog dataset spasial & dokumen
+// Geometry: GEOMETRY(Polygon, 4326) for bbox footprint  ← added via migration SQL
+// FK: uploaderId → users.id, organizationId → organizations.id (§BA domain)
+// ---------------------------------------------------------------------------
+model Dataset {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title            String
+  description      String?
+  category         DatasetCategory
+  format           String           // "SHP", "GeoJSON", "SEG-Y", "LAS", "PDF", "GeoPackage"
+  sensitivityLevel SensitivityLevel @default(INTERNAL) @map("sensitivity_level")
+  status           DatasetStatus    @default(DRAFT)
+  verified         Boolean          @default(false)
+  fileUrl          String?          @map("file_url")   // MinIO object path
+  fileSizeBytes    BigInt?          @map("file_size_bytes")
+  // bbox GEOMETRY(Polygon, 4326) — added via migration SQL
+  // CREATE INDEX "datasets_bbox_gist" ON "datasets" USING GIST ("bbox");
+  bboxJson         Json?            @map("bbox_json")  // [minLon, minLat, maxLon, maxLat]
+  centerLat        Float?           @map("center_lat")
+  centerLon        Float?           @map("center_lon")
+  workAreaId       String?          @map("work_area_id") @db.Uuid
+  workArea         WorkArea?        @relation("DatasetWorkArea", fields: [workAreaId], references: [id])
+  uploaderId       String?          @map("uploader_id") @db.Uuid
+  uploader         User?            @relation("DatasetUploader", fields: [uploaderId], references: [id])
+  organizationId   String?          @map("organization_id") @db.Uuid
+  organization     Organization?    @relation("DatasetOrganization", fields: [organizationId], references: [id])
+  dataQuality      Json?            @map("data_quality") // { completeness, positionalAccuracy, currency }
+  metadata         Json?            // { crs, record_count, file_format, license, etc. }
+  year             Int?
+  surveyYear       Int?             @map("survey_year")
+  downloadCount    Int              @default(0) @map("download_count")
+  viewCount        Int              @default(0) @map("view_count")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  publishedAt      DateTime?        @map("published_at")
+
+  @@index([category])
+  @@index([status])
+  @@index([workAreaId])
+  @@index([uploaderId])
+  @@index([organizationId])
+  @@index([verified])
+  @@index([year])
+  @@map("datasets")
+}
+
+enum DatasetCategory {
+  SEISMIC
+  WELL_LOG
+  PRODUCTION
+  CONCESSION
+  GEOLOGY
+  DOCUMENT
+  INFRASTRUCTURE
+}
+
+enum SensitivityLevel {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  RESTRICTED
+}
+
+enum DatasetStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+// ---------------------------------------------------------------------------
+// SeismicCoverage — polygon footprint of seismic survey acquisition areas
+// Geometry: GEOMETRY(Polygon, 4326)  ← added via migration SQL
+// ---------------------------------------------------------------------------
+model SeismicCoverage {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String
+  surveyYear        Int       @map("survey_year")
+  surveyType        String    @map("survey_type")  // "2D", "3D", "4D"
+  operator          String
+  // area GEOMETRY(Polygon, 4326) — added via migration SQL
+  // CREATE INDEX "seismic_coverages_area_gist" ON "seismic_coverages" USING GIST ("area");
+  bboxJson          Json?     @map("bbox_json")
+  areaKm2           Float?    @map("area_km2")      // ST_Area(area::geography)/1e6
+  bandwidth         String?                         // "10-80 Hz"
+  acquisitionMethod String?   @map("acquisition_method")  // "Towed streamer", "OBN"
+  processingVendor  String?   @map("processing_vendor")
+  workAreaId        String?   @map("work_area_id") @db.Uuid
+  workArea          WorkArea? @relation(fields: [workAreaId], references: [id])
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([workAreaId])
+  @@index([surveyYear])
+  @@index([surveyType])
+  @@index([operator])
+  @@map("seismic_coverages")
+}
