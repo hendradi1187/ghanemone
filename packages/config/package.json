@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Shared ESLint, Prettier, TSConfig, dan Tailwind base preset untuk semua apps/packages di monorepo.",
+  "type": "module",
   "main": "index.js",
   "files": [
     "eslint-base.js",

@@ -15,11 +15,10 @@ import {
 import {
   CHART_PALETTE,
   CHART_SURFACE,
-  TOOLTIP_CONTENT_STYLE,
-  TOOLTIP_ITEM_STYLE,
-  TOOLTIP_LABEL_STYLE,
 } from './chart-colors';
 import { ChartShell } from './ChartShell';
+import { CustomTooltip } from './CustomTooltip';
+import { colorTokens } from '../tokens';
 
 export interface PieSlice {
   name: string;
@@ -86,9 +85,7 @@ export function PieChartCard({
             ))}
           </Pie>
           <Tooltip
-            contentStyle={TOOLTIP_CONTENT_STYLE}
-            labelStyle={TOOLTIP_LABEL_STYLE}
-            itemStyle={TOOLTIP_ITEM_STYLE}
+            content={<CustomTooltip />}
             formatter={
               formatValue
                 ? (value: number | string) =>
@@ -102,7 +99,7 @@ export function PieChartCard({
               align="center"
               iconType="square"
               iconSize={8}
-              wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+              wrapperStyle={{ fontSize: 11, paddingTop: 8, color: colorTokens.ink[3] }}
             />
           ) : null}
         </PieChart>

@@ -1,10 +1,10 @@
 /**
- * Icon.stories — Lucide-style SVG icon. Mencakup grid lengkap (`AllIcons`)
+ * Icon.stories — Lucide-backed SVG icon. Mencakup grid lengkap (`AllIcons`)
  * supaya designer + developer dapat browse set ikon yang tersedia.
  */
 import type { Meta, StoryObj } from '@storybook/react';
 import { Icon } from './Icon';
-import { iconPaths, type IconName } from './icon-paths';
+import { iconMap, type IconName } from './icon-map';
 
 const meta = {
   title: 'Icon/Icon',
@@ -13,7 +13,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Icon — stroked SVG (24×24 viewBox). Decorative by default (`aria-hidden`). Set ' +
+          'Icon — Lucide React icon (24×24 viewBox). Decorative by default (`aria-hidden`). Set ' +
           '`title` untuk meaningful icon (otomatis menjadi `role="img"` + `<title>` SR-friendly). ' +
           'Untuk icon-only button, wrap dalam `<button aria-label="...">`.',
       },
@@ -22,7 +22,7 @@ const meta = {
   argTypes: {
     name: {
       control: 'select',
-      options: Object.keys(iconPaths) as IconName[],
+      options: Object.keys(iconMap) as IconName[],
     },
     size: { control: { type: 'number', min: 10, max: 64, step: 2 } },
     strokeWidth: { control: { type: 'number', min: 1, max: 3, step: 0.1 } },
@@ -40,7 +40,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * Grid yang menampilkan SEMUA 41 ikon dengan label nama. Pakai sebagai
+ * Grid yang menampilkan SEMUA ikon dengan label nama. Pakai sebagai
  * catalog reference. Layout responsive grid.
  */
 export const AllIcons: Story = {
@@ -48,13 +48,13 @@ export const AllIcons: Story = {
     docs: {
       description: {
         story:
-          'Catalog lengkap 41 ikon. Klik label untuk copy nama. ' +
-          'Tambah ikon baru di `icon-paths.ts` — otomatis muncul di sini.',
+          'Catalog lengkap ikon (via Lucide React). ' +
+          'Tambah ikon baru di `icon-map.ts` — otomatis muncul di sini.',
       },
     },
   },
   render: () => {
-    const names = Object.keys(iconPaths) as IconName[];
+    const names = Object.keys(iconMap) as IconName[];
     return (
       <div className="grid grid-cols-4 gap-3 max-w-3xl">
         {names.map((n) => (

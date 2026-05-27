@@ -194,7 +194,12 @@ const transitionTimingFunction = {
 
 /**
  * Z-index scale — tidak ada di hifi-tokens.css, tapi ditetapkan di sini untuk hindari magic numbers.
- * Skala konservatif: nav (40), floating panels (50), modals (60), toast (70), tooltip (80).
+ * Skala konservatif: nav (40), floating panels (50–55), modals (60), toast (70), tooltip (80).
+ *
+ * Hierarki floating di MapPage:
+ *   floating-base    (50) — status bar statis: legend, CRS indicator
+ *   floating-panel   (51) — collapsible side panels: LayerPanel, DatasetSidebar
+ *   floating-overlay (55) — selalu di atas panel: SearchBar, View Mode Toggle
  */
 const zIndex = {
   auto: 'auto',
@@ -203,6 +208,9 @@ const zIndex = {
   20: '20',
   nav: '40',
   floating: '50',
+  'floating-base': '50',
+  'floating-panel': '51',
+  'floating-overlay': '55',
   modal: '60',
   toast: '70',
   tooltip: '80',
@@ -236,11 +244,23 @@ const keyframes = {
     '0%': { opacity: '1' },
     '100%': { opacity: '0' },
   },
+  // Animasi untuk SlideOver — slide dari kanan
+  'slide-in-right': {
+    '0%': { transform: 'translateX(100%)' },
+    '100%': { transform: 'translateX(0)' },
+  },
+  'slide-out-right': {
+    '0%': { transform: 'translateX(0)' },
+    '100%': { transform: 'translateX(100%)' },
+  },
 };
 const animation = {
   'skeleton-shimmer': 'skeleton-shimmer 1.4s ease-in-out infinite',
   'fade-in': 'fade-in 160ms cubic-bezier(.2,.7,.3,1)',
   'fade-out': 'fade-out 160ms cubic-bezier(.2,.7,.3,1)',
+  // SlideOver animations
+  'slide-in-right': 'slide-in-right 200ms ease-out',
+  'slide-out-right': 'slide-out-right 200ms ease-in',
 };
 
 /**

@@ -33,6 +33,7 @@ export {
 export {
   Icon,
   type IconProps,
+  iconMap,
   iconPaths,
   isIconName,
   type IconName,

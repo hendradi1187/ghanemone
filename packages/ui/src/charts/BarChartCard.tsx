@@ -19,11 +19,10 @@ import {
   CHART_AXIS,
   CHART_GRID,
   CHART_PRIMARY,
-  TOOLTIP_CONTENT_STYLE,
-  TOOLTIP_ITEM_STYLE,
-  TOOLTIP_LABEL_STYLE,
 } from './chart-colors';
 import { ChartShell } from './ChartShell';
+import { CustomTooltip } from './CustomTooltip';
+import { fontFamilyTokens } from '../tokens';
 
 export type BarOrientation = 'horizontal' | 'vertical';
 
@@ -92,7 +91,7 @@ export function BarChartCard({
             <>
               <XAxis
                 type="number"
-                tick={{ fill: CHART_AXIS, fontSize: 11 }}
+                tick={{ fill: CHART_AXIS, fontSize: 11, fontFamily: fontFamilyTokens.sans }}
                 tickLine={false}
                 axisLine={{ stroke: CHART_GRID }}
                 tickFormatter={formatValue}
@@ -100,7 +99,7 @@ export function BarChartCard({
               <YAxis
                 type="category"
                 dataKey={xKey}
-                tick={{ fill: CHART_AXIS, fontSize: 11 }}
+                tick={{ fill: CHART_AXIS, fontSize: 11, fontFamily: fontFamilyTokens.sans }}
                 tickLine={false}
                 axisLine={{ stroke: CHART_GRID }}
                 width={120}
@@ -110,12 +109,12 @@ export function BarChartCard({
             <>
               <XAxis
                 dataKey={xKey}
-                tick={{ fill: CHART_AXIS, fontSize: 11 }}
+                tick={{ fill: CHART_AXIS, fontSize: 11, fontFamily: fontFamilyTokens.sans }}
                 tickLine={false}
                 axisLine={{ stroke: CHART_GRID }}
               />
               <YAxis
-                tick={{ fill: CHART_AXIS, fontSize: 11 }}
+                tick={{ fill: CHART_AXIS, fontSize: 11, fontFamily: fontFamilyTokens.sans }}
                 tickLine={false}
                 axisLine={{ stroke: CHART_GRID }}
                 tickFormatter={formatValue}
@@ -124,9 +123,7 @@ export function BarChartCard({
             </>
           )}
           <Tooltip
-            contentStyle={TOOLTIP_CONTENT_STYLE}
-            labelStyle={TOOLTIP_LABEL_STYLE}
-            itemStyle={TOOLTIP_ITEM_STYLE}
+            content={<CustomTooltip />}
             cursor={{ fill: CHART_GRID, opacity: 0.3 }}
             formatter={
               formatValue

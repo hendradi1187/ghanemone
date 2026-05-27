@@ -39,3 +39,8 @@ export {
   CHART_GRID,
   CHART_AXIS,
 } from './chart-colors';
+
+export {
+  CustomTooltip,
+  type CustomTooltipProps,
+} from './CustomTooltip';

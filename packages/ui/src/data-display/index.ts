@@ -1,14 +1,26 @@
 /**
  * Data-display module — komponen presentasi data list/tabel/grid.
  *
+ * - Badge: compact label chip dengan variants (success/warning/danger/info/neutral/brand)
+ * - StatusChip: Badge dengan semantic status mapping + animated pulse dot untuk running/processing
  * - DatasetCard: row/tile dataset
  * - FilterChip: pill filter aktif
  * - Pagination: page navigator
  * - EmptyState: placeholder no-data / no-results / error
- * - AttributeTable: schema/columns table (Phase 8.8)
- * - CodeBlock: code snippet dengan copy button (Phase 8.8)
- * - StatCard: metric tile compact (Phase 8.8)
+ * - AttributeTable: schema/columns table
+ * - CodeBlock: code snippet dengan copy button
+ * - StatCard: metric tile compact
  */
+export {
+  Badge,
+  type BadgeProps,
+  type BadgeVariant,
+  type BadgeSize,
+  StatusChip,
+  type StatusChipProps,
+  type StatusChipStatus,
+} from './Badge';
+
 export {
   DatasetCard,
   type DatasetCardProps,

@@ -226,13 +226,15 @@ function SidebarItemButton({ active, onClick, children }: SidebarItemButtonProps
       aria-current={active ? 'page' : undefined}
       className={[
         'flex items-center gap-2.5 w-full',
-        'px-2 py-1.5 rounded-2',
+        // Active: border kiri 2px brand green + bg green-50
+        // Inactive: padding kiri 10px (8px px-2 + 2px kompensasi border ghost)
+        'py-1.5 rounded-2',
         'text-sm font-medium text-left',
         'transition-colors duration-hf',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-green-500 focus-visible:-outline-offset-2',
         active
-          ? 'bg-green-50 text-green-700 font-semibold'
-          : 'text-ink-2 hover:bg-surface-3',
+          ? 'bg-green-50 text-green-700 font-semibold border-l-2 border-green-500 pl-[6px] pr-2'
+          : 'text-ink-2 hover:bg-surface-3 border-l-2 border-transparent pl-[6px] pr-2',
       ].join(' ')}
     >
       {children}

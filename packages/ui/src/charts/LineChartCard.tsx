@@ -30,11 +30,10 @@ import {
   CHART_GRID,
   CHART_PALETTE,
   CHART_PRIMARY,
-  TOOLTIP_CONTENT_STYLE,
-  TOOLTIP_ITEM_STYLE,
-  TOOLTIP_LABEL_STYLE,
 } from './chart-colors';
 import { ChartShell } from './ChartShell';
+import { CustomTooltip } from './CustomTooltip';
+import { fontFamilyTokens } from '../tokens';
 
 export interface LineSeries {
   key: string;
@@ -104,21 +103,19 @@ export function LineChartCard({
           <CartesianGrid stroke={CHART_GRID} strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey={xKey}
-            tick={{ fill: CHART_AXIS, fontSize: 11 }}
+            tick={{ fill: CHART_AXIS, fontSize: 11, fontFamily: fontFamilyTokens.sans }}
             tickLine={false}
             axisLine={{ stroke: CHART_GRID }}
           />
           <YAxis
-            tick={{ fill: CHART_AXIS, fontSize: 11 }}
+            tick={{ fill: CHART_AXIS, fontSize: 11, fontFamily: fontFamilyTokens.sans }}
             tickLine={false}
             axisLine={{ stroke: CHART_GRID }}
             tickFormatter={formatValue}
             width={40}
           />
           <Tooltip
-            contentStyle={TOOLTIP_CONTENT_STYLE}
-            labelStyle={TOOLTIP_LABEL_STYLE}
-            itemStyle={TOOLTIP_ITEM_STYLE}
+            content={<CustomTooltip />}
             cursor={{ stroke: CHART_GRID, strokeWidth: 1 }}
             formatter={
               formatValue

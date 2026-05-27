@@ -10,3 +10,4 @@ export {
   TooltipContent,
   type TooltipProps,
 } from './Tooltip';
+export { SlideOver, type SlideOverContentProps } from './SlideOver';
